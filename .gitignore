@@ -39,3 +39,24 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# User uploads & local assets
+public/uploads/
+public/Image/
+public/Image_02/
+
+# SonarQube scanner
+.scannerwork/
+sonar-project.properties
+
+# Test artifacts & logs
+test_*.log
+test_*.txt
+output.log
+
+# Schema dumps
+schema_dump.json
+
+# Docker (optional - uncomment if you don't want to commit)
+# docker-compose.yml
+# Dockerfile

@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nextjs_app
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=host.docker.internal # Overrides .env for Docker networking
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+
+  sonar-scanner:
+    image: sonarsource/sonar-scanner-cli:5.0
+    container_name: sonar_scanner
+    depends_on:
+      - sonarqube
+    environment:
+      - SONAR_HOST_URL=http://sonarqube:9000
+      - SONAR_LOGIN=sqp_f8d17eb1422131677e351c0b73a377165210d24f
+    volumes:
+      - .:/usr/src
+    command: [ "-Dsonar.projectKey=matrimoney-nextjs", "-Dsonar.sources=src", "-Dsonar.host.url=http://sonarqube:9000", "-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info" ]
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:

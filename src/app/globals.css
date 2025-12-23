@@ -1,27 +1,50 @@
+/* Basic Resets & Smooth Behavior */
 :root {
+  scroll-behavior: smooth;
   --background: #ffffff;
   --foreground: #171717;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Brand Colors from User's Specific Palette */
+  --brand-maroon: #490B22;
+  /* Primary Dark Background - Keeping as is for contrast */
+  --brand-dark-shade: #C2185B;
+  /* Darker Pink for hover states */
+  --brand-primary: #E33183;
+  /* New Main Pink */
+  --brand-secondary: #E95A9C;
+  /* Secondary Pink for gradients */
+  --brand-light-pink: #EE83B5;
+  /* Light Accent */
+  --brand-bg-light: #F9D6E6;
+  /* Very light background pink */
 }
 
 html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
+  /* Smooth touch scrolling (momentum) on iOS/touch devices */
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.font-heading {
+  font-family: var(--font-poppins), system-ui, -apple-system, sans-serif;
+  color: var(--brand-maroon);
+  /* Make headings maroon by default */
 }
 
 * {
@@ -35,8 +58,215 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
+/* --- THEME OVERRIDES --- */
+
+/* Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%) !important;
+  border: none !important;
+  color: white !important;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--brand-dark-shade) 0%, var(--brand-primary) 100%) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 15px rgba(139, 63, 91, 0.4);
+}
+
+.btn-outline-primary {
+  color: var(--brand-primary) !important;
+  border: 2px solid var(--brand-primary) !important;
+  background: transparent !important;
+  font-weight: 600;
+}
+
+.btn-outline-primary:hover {
+  background: var(--brand-primary) !important;
+  color: white !important;
+  box-shadow: 0 4px 10px rgba(139, 63, 91, 0.3);
+}
+
+/* Typography Colors */
+.text-primary {
+  color: var(--brand-primary) !important;
+}
+
+.text-maroon {
+  color: var(--brand-maroon) !important;
+}
+
+.bg-maroon {
+  background-color: var(--brand-maroon) !important;
+  color: white;
+}
+
+/* Cards & Containers */
+.card-hover:hover {
+  transform: translateY(-5px);
+  transition: transform 0.3s ease;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Form Controls */
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--brand-primary) !important;
+  box-shadow: 0 0 0 0.25rem rgba(139, 63, 91, 0.25) !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f8f9fa;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6c757d;
+}
+
+/* --- Animations & Utilities Moved from MyHome --- */
+.scale-in-center {
+  animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
   }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.icon-pop {
+  animation: pop 0.5s ease;
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0);
+  }
+
+  70% {
+    transform: scale(1.2);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.fade-in-overlay {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.myhome-surface {
+  background-color: #f4f7fa;
+  min-height: 100vh;
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ls-1 {
+  letter-spacing: 1px;
+}
+
+.hover-text-primary:hover {
+  color: var(--brand-primary) !important;
+}
+
+.pointer-hover {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.pointer-hover:hover {
+  transform: translateX(4px);
+}
+
+/* Unified Scrollbar (MyHome style merged) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #e2e8f0;
+  border-radius: 20px;
+}
+/*  Loading Skeleton Styles */
+.loading-skeleton {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.skeleton-box {
+  background-color: #e5e7eb;
+  border-radius: 8px;
+}
+
+/* Height utilities */
+.h-4 { height: 1rem; }
+.h-5 { height: 1.25rem; }
+.h-6 { height: 1.5rem; }
+.h-8 { height: 2rem; }
+.h-10 { height: 2.5rem; }
+.h-12 { height: 3rem; }
+
+/* Width utilities */
+.w-25 { width: 25%; }
+.w-33 { width: 33.333333%; }
+.w-50 { width: 50%; }
+.w-66 { width: 66.666667%; }
+.w-75 { width: 75%; }
+.w-85 { width: 83.333333%; }
+.w-100 { width: 100%; }
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
 }
