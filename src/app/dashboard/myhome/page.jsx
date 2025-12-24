@@ -97,9 +97,81 @@ export default function MyHome() {
   // Track the current local preview URL for automatic cleanup via effect
   const [previewBlobUrl, setPreviewBlobUrl] = useState(null);
 
+  // ⚡ OPTIMIZATION: Fetch all data in parallel with timeout protection
   useEffect(() => {
-    fetchProfile();
-    fetchActiveSubscription();
+    let alive = true;
+
+    const fetchWithTimeout = async (url, timeout = 10000) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const res = await fetch(url, {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return res;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.warn(`Request to ${url} timed out after ${timeout}ms`);
+        }
+        throw error;
+      }
+    };
+
+    const fetchAllData = async () => {
+      try {
+        // 🚀 Fetch all data in PARALLEL
+        const [profileRes, subscriptionRes] = await Promise.allSettled([
+          fetchWithTimeout('/api/my-home'),
+          fetchWithTimeout('/api/me/active-subscription')
+        ]);
+
+        if (!alive) return;
+
+        // Handle profile
+        if (profileRes.status === 'fulfilled') {
+          const data = await safeJson(profileRes.value);
+          if (profileRes.value.status === 401) {
+            router.push('/login');
+            return;
+          }
+          if (profileRes.value.ok) {
+            setProfile(data.profile || null);
+          }
+        } else {
+          console.error('Profile fetch failed:', profileRes.reason);
+          setProfile(null);
+        }
+
+        // Handle subscription
+        if (subscriptionRes.status === 'fulfilled' && subscriptionRes.value.ok) {
+          const data = await subscriptionRes.value.json().catch(() => ({}));
+          const active = data.active || data.subscription || null;
+          setActiveSub(active);
+        } else {
+          if (subscriptionRes.status === 'rejected') {
+            console.error('Subscription fetch failed:', subscriptionRes.reason);
+          }
+          setActiveSub(null);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard data', err);
+        setProfile(null);
+        setActiveSub(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+
+    fetchAllData();
+
+    return () => {
+      alive = false;
+    };
   }, []); // Run once on mount
 
   // Cleanup effect: runs when previewBlobUrl changes (revokes old) and on unmount
@@ -116,19 +188,33 @@ export default function MyHome() {
     let alive = true;
 
     async function loadUpdates(months) {
-      const r = await fetch(`/api/recent-users?limit=8&months=${months}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data?.error || 'Failed to load');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      // read viewerIsPremium from API if present
-      if (alive && typeof data.viewerIsPremium === 'boolean') {
-        setViewerIsPremium(data.viewerIsPremium);
+      try {
+        const r = await fetch(`/api/recent-users?limit=8&months=${months}`, {
+          cache: 'no-store',
+          credentials: 'include',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data?.error || 'Failed to load');
+
+        // read viewerIsPremium from API if present
+        if (alive && typeof data.viewerIsPremium === 'boolean') {
+          setViewerIsPremium(data.viewerIsPremium);
+        }
+
+        return Array.isArray(data.users) ? data.users : [];
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.warn('Recent users request timed out after 10 seconds');
+        }
+        throw error;
       }
-
-      return Array.isArray(data.users) ? data.users : [];
     }
 
     (async () => {

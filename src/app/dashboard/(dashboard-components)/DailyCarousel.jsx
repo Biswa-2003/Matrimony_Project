@@ -39,45 +39,59 @@ export default function DailyRecommendationsCarousel({ recommendations = [], cur
       try {
         setLoading(true);
 
-        // same endpoint you already use for "Latest Updates"
-        const res = await fetch('/api/recent-users?limit=20&months=12', {
-          credentials: 'include',
-          cache: 'no-store',
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        const data = await res.json().catch(() => ({}));
-        if (!alive) return;
+        try {
+          // same endpoint you already use for "Latest Updates"
+          const res = await fetch('/api/recent-users?limit=20&months=12', {
+            credentials: 'include',
+            cache: 'no-store',
+            signal: controller.signal
+          });
 
-        if (!res.ok || !Array.isArray(data.users)) {
-          setDbRecs([]);
-          return;
+          clearTimeout(timeoutId);
+
+          const data = await res.json().catch(() => ({}));
+          if (!alive) return;
+
+          if (!res.ok || !Array.isArray(data.users)) {
+            setDbRecs([]);
+            return;
+          }
+
+          let rows = data.users;
+
+          // determine target gender (opposite of currentGender)
+          const g = String(currentGender || '').toUpperCase();
+          let target = null;
+          if (g.startsWith('M')) target = 'F';
+          else if (g.startsWith('F')) target = 'M';
+
+          if (target) {
+            rows = rows.filter((u) =>
+              String(u.gender || '').toUpperCase().startsWith(target)
+            );
+          }
+
+          // map to carousel fields
+          const mapped = rows.map((u, i) => ({
+            id: u.user_id ?? u.id ?? u.matri_id ?? i,
+            name: u.first_name || u.name || u.matri_id,
+            matri_id: u.matri_id,
+            img: u.photo || '/uploads/default.jpg',
+            photosCount: 0,
+            connection_status: u.connection_status, // Pass connection status
+          }));
+
+          setDbRecs(mapped);
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            console.warn('Daily recommendations request timed out after 10 seconds');
+          }
+          throw fetchError;
         }
-
-        let rows = data.users;
-
-        // determine target gender (opposite of currentGender)
-        const g = String(currentGender || '').toUpperCase();
-        let target = null;
-        if (g.startsWith('M')) target = 'F';
-        else if (g.startsWith('F')) target = 'M';
-
-        if (target) {
-          rows = rows.filter((u) =>
-            String(u.gender || '').toUpperCase().startsWith(target)
-          );
-        }
-
-        // map to carousel fields
-        const mapped = rows.map((u, i) => ({
-          id: u.user_id ?? u.id ?? u.matri_id ?? i,
-          name: u.first_name || u.name || u.matri_id,
-          matri_id: u.matri_id,
-          img: u.photo || '/uploads/default.jpg',
-          photosCount: 0,
-          connection_status: u.connection_status, // Pass connection status
-        }));
-
-        setDbRecs(mapped);
       } catch (e) {
         if (!alive) return;
         console.error('Failed to load daily recommendations', e);

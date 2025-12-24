@@ -97,9 +97,18 @@ export async function GET(req) {
     `;
 
     const [intRes, accRes, viewRes] = await Promise.all([
-      query(interestsSql, [meId]),
-      query(acceptedSql, [meId]),
-      query(viewsSql, [meId])
+      query(interestsSql, [meId]).catch(err => {
+        console.error('Interests query error:', err);
+        return { rows: [] };
+      }),
+      query(acceptedSql, [meId]).catch(err => {
+        console.error('Accepted query error:', err);
+        return { rows: [] };
+      }),
+      query(viewsSql, [meId]).catch(err => {
+        console.error('Views query error:', err);
+        return { rows: [] };
+      })
     ]);
 
     const notifications = [
@@ -115,6 +124,12 @@ export async function GET(req) {
     return NextResponse.json({ ok: true, count, notifications });
   } catch (e) {
     console.error("Notifications error:", e);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    // Return empty notifications instead of error to prevent client-side fetch failures
+    return NextResponse.json({
+      ok: false,
+      count: 0,
+      notifications: [],
+      error: "Failed to fetch notifications"
+    }, { status: 200 }); // Return 200 with empty data instead of 500
   }
 }

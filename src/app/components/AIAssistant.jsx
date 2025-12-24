@@ -16,7 +16,42 @@ export default function AIAssistant() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [conversationHistory, setConversationHistory] = useState([]);
+    const [showGreeting, setShowGreeting] = useState(false);
+    const [greetingDismissed, setGreetingDismissed] = useState(false);
     const messagesEndRef = useRef(null);
+
+    // Show greeting after a delay when component mounts
+    useEffect(() => {
+        const greetingTimer = setTimeout(() => {
+            if (!isOpen && !greetingDismissed) {
+                setShowGreeting(true);
+            }
+        }, 2000); // Show greeting after 2 seconds
+
+        return () => clearTimeout(greetingTimer);
+    }, [isOpen, greetingDismissed]);
+
+    // Auto-hide greeting after some time
+    useEffect(() => {
+        if (showGreeting && !isOpen) {
+            const hideTimer = setTimeout(() => {
+                setShowGreeting(false);
+            }, 10000); // Hide after 10 seconds if not interacted
+
+            return () => clearTimeout(hideTimer);
+        }
+    }, [showGreeting, isOpen]);
+
+    const handleOpenChat = () => {
+        setIsOpen(true);
+        setShowGreeting(false);
+        setGreetingDismissed(true);
+    };
+
+    const dismissGreeting = () => {
+        setShowGreeting(false);
+        setGreetingDismissed(true);
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -95,10 +130,67 @@ export default function AIAssistant() {
 
     return (
         <>
+            {/* Proactive Greeting Bubble */}
+            {!isOpen && showGreeting && (
+                <div
+                    className="ai-greeting-bubble"
+                    style={{
+                        position: 'fixed',
+                        bottom: '90px',
+                        right: '20px',
+                        width: '280px',
+                        background: 'white',
+                        borderRadius: '16px',
+                        padding: '16px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                        zIndex: 9999,
+                        animation: 'slideUp 0.5s ease-out',
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'start', gap: '8px' }}>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 'bold', color: '#E33183', marginBottom: '4px' }}>
+                                👋 Hi there!
+                            </div>
+                            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                                How can I help you today? Feel free to ask me anything!
+                            </div>
+                        </div>
+                        <button
+                            onClick={dismissGreeting}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                fontSize: '20px',
+                                color: '#9ca3af',
+                                cursor: 'pointer',
+                                padding: 0,
+                                lineHeight: 1,
+                            }}
+                        >
+                            ×
+                        </button>
+                    </div>
+                    {/* Pointer arrow */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            bottom: '-8px',
+                            right: '25px',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '8px solid transparent',
+                            borderRight: '8px solid transparent',
+                            borderTop: '8px solid white',
+                        }}
+                    />
+                </div>
+            )}
+
             {/* Floating Button */}
             <button
                 className="ai-assistant-toggle"
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={() => isOpen ? setIsOpen(false) : handleOpenChat()}
                 aria-label="Toggle AI Assistant"
             >
                 {isOpen ? (

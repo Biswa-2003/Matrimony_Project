@@ -15,7 +15,42 @@ export default function ChatbotWidget() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [conversationHistory, setConversationHistory] = useState([]);
+    const [showGreeting, setShowGreeting] = useState(true);
+    const [greetingDismissed, setGreetingDismissed] = useState(false);
     const messagesEndRef = useRef(null);
+
+    // Show greeting after a delay when component mounts
+    useEffect(() => {
+        const greetingTimer = setTimeout(() => {
+            if (!isOpen && !greetingDismissed) {
+                setShowGreeting(true);
+            }
+        }, 2000); // Show greeting after 2 seconds
+
+        return () => clearTimeout(greetingTimer);
+    }, [isOpen, greetingDismissed]);
+
+    // Auto-hide greeting after some time
+    useEffect(() => {
+        if (showGreeting && !isOpen) {
+            const hideTimer = setTimeout(() => {
+                setShowGreeting(false);
+            }, 10000); // Hide after 10 seconds if not interacted
+
+            return () => clearTimeout(hideTimer);
+        }
+    }, [showGreeting, isOpen]);
+
+    const handleOpenChat = () => {
+        setIsOpen(true);
+        setShowGreeting(false);
+        setGreetingDismissed(true);
+    };
+
+    const dismissGreeting = () => {
+        setShowGreeting(false);
+        setGreetingDismissed(true);
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -74,11 +109,56 @@ export default function ChatbotWidget() {
 
     return (
         <>
+            {/* Proactive Greeting Bubble */}
+            {!isOpen && showGreeting && (
+                <div
+                    className="position-fixed shadow-lg bg-white rounded-4 p-3 animate-greeting"
+                    style={{
+                        bottom: 90,
+                        right: 20,
+                        width: 280,
+                        zIndex: 1000,
+                        animation: 'slideUp 0.5s ease-out',
+                    }}
+                >
+                    <div className="d-flex align-items-start gap-2">
+                        <div className="flex-grow-1">
+                            <div className="fw-bold text-maroon mb-1">
+                                👋 Hi there!
+                            </div>
+                            <div className="small text-muted">
+                                How can I help you today? Feel free to ask me anything!
+                            </div>
+                        </div>
+                        <button
+                            onClick={dismissGreeting}
+                            className="btn btn-link p-0 text-muted"
+                            style={{ fontSize: '1.2rem', lineHeight: 1 }}
+                        >
+                            ×
+                        </button>
+                    </div>
+                    {/* Pointer arrow */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            bottom: -8,
+                            right: 25,
+                            width: 0,
+                            height: 0,
+                            borderLeft: '8px solid transparent',
+                            borderRight: '8px solid transparent',
+                            borderTop: '8px solid white',
+                        }}
+                    />
+                </div>
+            )}
+
             {/* Chat Button */}
             {!isOpen && (
                 <button
-                    onClick={() => setIsOpen(true)}
-                    className="position-fixed shadow-lg rounded-circle d-flex align-items-center justify-content-center"
+                    onClick={handleOpenChat}
+                    className="position-fixed shadow-lg rounded-circle d-flex align-items-center justify-content-center chatbot-pulse"
                     style={{
                         bottom: 20,
                         right: 20,
@@ -234,6 +314,33 @@ export default function ChatbotWidget() {
         }
         .hover-lift:hover {
           transform: translateY(-2px);
+        }
+        
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        @keyframes pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(227, 49, 131, 0.7);
+          }
+          70% {
+            box-shadow: 0 0 0 15px rgba(227, 49, 131, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(227, 49, 131, 0);
+          }
+        }
+        
+        .chatbot-pulse {
+          animation: pulse 2s infinite;
         }
       `}</style>
         </>

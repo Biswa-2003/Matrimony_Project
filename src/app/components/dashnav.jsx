@@ -153,30 +153,71 @@ export default function DashNav() {
     if (!user?.id || isLoggingOut) return;
     let aborted = false;
 
-    const fetchJson = async (url) => {
-      const r = await fetch(url, { cache: 'no-store', credentials: 'include' });
-      if (r.status === 401) return { abort: true, data: {} };
-      if (!r.ok) return { abort: false, data: {} };
-      const data = await r.json().catch(() => ({}));
-      return { abort: false, data };
+    const fetchJson = async (url, timeout = 8000) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const r = await fetch(url, {
+          cache: 'no-store',
+          credentials: 'include',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (r.status === 401) return { abort: true, data: {} };
+        if (!r.ok) return { abort: false, data: {} };
+        const data = await r.json().catch(() => ({}));
+        return { abort: false, data };
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.warn(`Request to ${url} timed out`);
+        }
+        return { abort: false, data: {} };
+      }
     };
 
     const refreshCounts = async () => {
-      for (const [baseUrl, key] of countEndpoints) {
-        if (aborted) break;
+      // ⚡ OPTIMIZATION: Fetch ALL counts in PARALLEL instead of sequential
+      const fetchPromises = countEndpoints.map(async ([baseUrl, key]) => {
+        if (aborted) return null;
+
         try {
           const { abort, data } = await fetchJson(`${baseUrl}?count=1`);
-          if (abort) break;
+          if (abort || aborted) return { key, abort: true };
+
           let value = extractCount(data);
           if (!value) {
             const res2 = await fetchJson(baseUrl);
-            if (res2.abort) break;
+            if (res2.abort || aborted) return { key, abort: true };
             const fallbackVal = extractCount(res2.data);
             if (fallbackVal) value = fallbackVal;
           }
-          if (!aborted) setCounts((p) => ({ ...p, [key]: Number(value) || 0 }));
+          return { key, value: Number(value) || 0, abort: false };
         } catch {
-          if (!aborted) setCounts((p) => ({ ...p, [key]: 0 }));
+          return { key, value: 0, abort: false };
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+
+      // Update all counts at once
+      if (!aborted) {
+        const newCounts = {};
+        let shouldAbort = false;
+
+        for (const result of results) {
+          if (!result) continue;
+          if (result.abort) {
+            shouldAbort = true;
+            break;
+          }
+          newCounts[result.key] = result.value;
+        }
+
+        if (!shouldAbort && Object.keys(newCounts).length > 0) {
+          setCounts((p) => ({ ...p, ...newCounts }));
         }
       }
     };
@@ -192,34 +233,94 @@ export default function DashNav() {
       window.removeEventListener('du:profile-view-logged', onProfileViewed);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [user?.id, isLoggingOut, countEndpoints]);
+  }, [user?.id, isLoggingOut, countEndpoints, extractCount]);
 
   // Notifications logic
   const [notifications, setNotifications] = useState({ count: 0, list: [] });
   useEffect(() => {
-    if (!user?.id) return;
+    // Don't fetch notifications if user is not logged in or is logging out
+    if (!user?.id || isLoggingOut) {
+      setNotifications({ count: 0, list: [] });
+      return;
+    }
+
+    const abortController = new AbortController();
+    let intervalId = null;
+
     const fetchNotifs = async () => {
+      // Double-check user is still logged in before each fetch
+      if (!user?.id || isLoggingOut) {
+        return;
+      }
+
       try {
-        const res = await fetch('/api/notifications', { cache: 'no-store', credentials: 'include' });
+        const res = await fetch('/api/notifications', {
+          cache: 'no-store',
+          credentials: 'include',
+          signal: abortController.signal
+        });
+
         if (res.ok) {
           const data = await res.json();
-          setNotifications({ count: data.count || 0, list: data.notifications || [] });
+          setNotifications({
+            count: data.count || 0,
+            list: data.notifications || []
+          });
+        } else if (res.status === 401) {
+          // Unauthorized - user might be logged out, reset notifications
+          setNotifications({ count: 0, list: [] });
+        } else {
+          console.warn('Notifications fetch failed with status:', res.status);
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        // Only log if not an abort error
+        if (e.name !== 'AbortError') {
+          console.error('Notifications fetch error:', e);
+          console.error('Error details:', {
+            name: e.name,
+            message: e.message,
+            stack: e.stack
+          });
+        }
+        // Silently fail - keep existing notifications on error
+        // Don't throw or show errors to user for notification polling
+      }
     };
-    fetchNotifs();
-    const interval = setInterval(fetchNotifs, 30000);
-    return () => clearInterval(interval);
-  }, [user?.id]);
+
+    // Initial fetch wrapped in try-catch
+    fetchNotifs().catch((err) => {
+      console.error('Initial notification fetch failed:', err);
+    });
+
+    // Poll every 30 seconds
+    intervalId = setInterval(() => {
+      fetchNotifs().catch((err) => {
+        console.error('Polling notification fetch failed:', err);
+      });
+    }, 30000);
+
+    return () => {
+      abortController.abort();
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [user?.id, isLoggingOut]);
 
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
 
-      // ✅ Call logout API in background (don't wait)
-      fetch('/api/logout', { method: 'GET', credentials: 'include' }).catch(() => { });
+      // ✅ Call logout API with both methods for compatibility
+      Promise.all([
+        fetch('/api/logout', { method: 'GET', credentials: 'include' }).catch(() => { }),
+        fetch('/api/logout', { method: 'POST', credentials: 'include' }).catch(() => { })
+      ]);
 
-      // ✅ Redirect IMMEDIATELY (before clearing state to prevent navbar flash)
+      // ✅ Force redirect using multiple methods to ensure it works
+      setTimeout(() => {
+        window.location.href = '/matrimoney/login';
+      }, 100);
+
+      // Immediate redirect as well
       window.location.href = '/matrimoney/login';
 
       // These won't execute because page will redirect, but good to have
@@ -233,8 +334,10 @@ export default function DashNav() {
         yetToView: 0,
       });
       setUser(null);
-    } catch {
-      setIsLoggingOut(false);
+    } catch (err) {
+      console.error('Logout error:', err);
+      // Force redirect even on error
+      window.location.href = '/matrimoney/login';
     }
   };
 
