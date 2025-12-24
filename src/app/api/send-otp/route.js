@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { query } from "@/lib/db";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
 

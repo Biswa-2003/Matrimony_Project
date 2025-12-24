@@ -1,57 +1,88 @@
-// import { NextResponse } from 'next/server';
-// import { writeFile, mkdir } from 'fs/promises';
-// import { join } from 'path';
-// import { v4 as uuidv4 } from 'uuid';
-// import { pool } from '@/lib/db';
-// import jwt from 'jsonwebtoken';
+'use client';
 
-// export const dynamic = 'force-dynamic';
+import React, { useState } from 'react';
+import { Container, Form, Button, Alert, Card } from 'react-bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
 
-// export async function POST(req) {
-//   try {
-//     // 🖼️ Extract photo from formData
-//     const formData = await req.formData();
-//     const file = formData.get('photo');
-//     if (!file) {
-//       return NextResponse.json({ error: 'No file found' }, { status: 400 });
-//     }
+export default function UploadPhotoPage() {
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const [message, setMessage] = useState(null);
 
-//     // 🔐 Get token from cookies
-//     const token = req.cookies.get('token')?.value;
-//     if (!token) {
-//       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-//     }
+    const handleFileChange = (e) => {
+        setSelectedFile(e.target.files[0]);
+        setMessage(null);
+    };
 
-//     // ✅ Decode user ID from JWT
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     const userId = decoded.id;
+    const handleUpload = async (e) => {
+        e.preventDefault();
 
-//     // 💾 Prepare file for saving
-//     const bytes = await file.arrayBuffer();
-//     const buffer = Buffer.from(bytes);
-//     const ext = file.name.split('.').pop();
-//     const filename = `${uuidv4()}.${ext}`;
+        if (!selectedFile) {
+            setMessage({ type: 'danger', text: 'Please select a photo first' });
+            return;
+        }
 
-//     const uploadPath = join(process.cwd(), 'public', 'uploads');
-//     await mkdir(uploadPath, { recursive: true }); // ✅ ensure folder exists
-//     await writeFile(join(uploadPath, filename), buffer); // ✅ write image file
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('photo', selectedFile);
 
-//     // 🛠️ Update DB with filename
-//     const client = await pool.connect();
-//     try {
-//       await client.query(
-//         `UPDATE users
-//          SET photo = COALESCE(photo, '[]'::jsonb) || to_jsonb($1::text)
-//          WHERE id = $2`,
-//         [filename, userId]
-//       );
-//     } finally {
-//       client.release();
-//     }
+        try {
+            const res = await fetch('/api/upload-photo', {
+                method: 'POST',
+                body: formData,
+            });
 
-//     return NextResponse.json({ message: '✅ Photo uploaded', filename });
-//   } catch (err) {
-//     console.error('❌ Upload error:', err);
-//     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
-//   }
-// }
+            const data = await res.json();
+
+            if (res.ok) {
+                setMessage({ type: 'success', text: data.message || 'Photo uploaded successfully!' });
+                setSelectedFile(null);
+            } else {
+                setMessage({ type: 'danger', text: data.error || 'Upload failed' });
+            }
+        } catch (error) {
+            setMessage({ type: 'danger', text: 'Network error. Please try again.' });
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    return (
+        <Container className="py-5">
+            <Card className="shadow-sm">
+                <Card.Body className="p-4">
+                    <h3 className="mb-4">Upload Profile Photo</h3>
+
+                    {message && (
+                        <Alert variant={message.type} dismissible onClose={() => setMessage(null)}>
+                            {message.text}
+                        </Alert>
+                    )}
+
+                    <Form onSubmit={handleUpload}>
+                        <Form.Group className="mb-3">
+                            <Form.Label>Select Photo</Form.Label>
+                            <Form.Control
+                                type="file"
+                                accept="image/*"
+                                onChange={handleFileChange}
+                                disabled={uploading}
+                            />
+                            <Form.Text className="text-muted">
+                                Accepted formats: JPG, PNG, GIF. Max size: 5MB
+                            </Form.Text>
+                        </Form.Group>
+
+                        <Button
+                            variant="primary"
+                            type="submit"
+                            disabled={uploading || !selectedFile}
+                        >
+                            {uploading ? 'Uploading...' : 'Upload Photo'}
+                        </Button>
+                    </Form>
+                </Card.Body>
+            </Card>
+        </Container>
+    );
+}

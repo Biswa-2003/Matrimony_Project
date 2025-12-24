@@ -1,5 +1,5 @@
 
-import pool from "@/lib/db";
+import { query } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { NextResponse } from "next/server";
@@ -66,7 +66,7 @@ export async function POST(req) {
     }
 
     // check if email already exists
-    const existing = await pool.query(
+    const existing = await query(
       "SELECT id FROM users WHERE email = $1 OR phone = $2 LIMIT 1",
       [email, phoneNumber]
     );
@@ -80,7 +80,7 @@ export async function POST(req) {
     // 🔍 resolve caste_id from caste name if needed
     let finalCasteId = caste_id || null;
     if (!finalCasteId && caste) {
-      const casteRes = await pool.query(
+      const casteRes = await query(
         "SELECT id FROM castes WHERE LOWER(name) = LOWER($1) LIMIT 1",
         [caste]
       );
@@ -98,7 +98,7 @@ export async function POST(req) {
     // 1️⃣ Insert into users table
     // columns from your screenshot:
     // id | email | phone | password_hash | is_verified | role | created_at | updated_at | first_name | last_name
-    await pool.query(
+    await query(
       `
       INSERT INTO users (
         id,
@@ -121,7 +121,7 @@ export async function POST(req) {
     // (columns you showed + what we used in advanced-search)
     const profileId = uuidv4();
 
-    await pool.query(
+    await query(
       `
       INSERT INTO matrimony_profiles (
         id,

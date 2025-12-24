@@ -1,6 +1,6 @@
 import { POST } from './route';
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { query } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { rateLimit } from '@/lib/rate-limit';
@@ -97,7 +97,7 @@ describe('POST /api/register', () => {
     });
 
     it('should return 409 if user already exists', async () => {
-        pool.query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+        query.mockResolvedValueOnce({ rows: [{ id: 1 }] });
         const req = {
             headers: { get: () => '127.0.0.1' },
             json: async () => ({
@@ -112,10 +112,10 @@ describe('POST /api/register', () => {
     });
 
     it('should register user successfully', async () => {
-        pool.query.mockResolvedValueOnce({ rows: [] }); // check existing
-        pool.query.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // resolve caste
-        pool.query.mockResolvedValueOnce({}); // insert user
-        pool.query.mockResolvedValueOnce({}); // insert profile
+        query.mockResolvedValueOnce({ rows: [] }); // check existing
+        query.mockResolvedValueOnce({ rows: [{ id: 1 }] }); // resolve caste
+        query.mockResolvedValueOnce({}); // insert user
+        query.mockResolvedValueOnce({}); // insert profile
 
         const req = {
             headers: { get: () => '127.0.0.1' },
@@ -134,7 +134,7 @@ describe('POST /api/register', () => {
     });
 
     it('should return 500 on error', async () => {
-        pool.query.mockRejectedValue(new Error('DB Error'));
+        query.mockRejectedValue(new Error('DB Error'));
         const req = {
             headers: { get: () => '127.0.0.1' },
             json: async () => ({

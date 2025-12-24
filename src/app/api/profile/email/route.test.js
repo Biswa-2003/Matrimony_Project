@@ -1,6 +1,6 @@
 import { POST } from './route';
 import { NextResponse } from 'next/server';
-import pool from '@/lib/db';
+import { query } from '@/lib/db';
 import { getUserIdFromCookie } from '@/lib/auth';
 
 jest.mock('next/server', () => ({
@@ -13,10 +13,7 @@ jest.mock('next/server', () => ({
 }));
 
 jest.mock('@/lib/db', () => ({
-    __esModule: true,
-    default: {
-        query: jest.fn(),
-    },
+    query: jest.fn(),
 }));
 
 jest.mock('@/lib/auth', () => ({
@@ -81,7 +78,7 @@ describe('POST /api/profile/email', () => {
 
     it('updates email successfully', async () => {
         getUserIdFromCookie.mockResolvedValue('user-123');
-        pool.query.mockResolvedValue({});
+        query.mockResolvedValue({});
 
         const req = new Request('http://localhost/api/profile/email', {
             method: 'POST',
@@ -94,7 +91,7 @@ describe('POST /api/profile/email', () => {
 
         const data = await res.json();
         expect(data.message).toBe('Email updated successfully.');
-        expect(pool.query).toHaveBeenCalledWith(
+        expect(query).toHaveBeenCalledWith(
             'UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2',
             ['newemail@example.com', 'user-123']
         );
@@ -102,7 +99,7 @@ describe('POST /api/profile/email', () => {
 
     it('handles database errors gracefully', async () => {
         getUserIdFromCookie.mockResolvedValue('user-123');
-        pool.query.mockRejectedValue(new Error('DB error'));
+        query.mockRejectedValue(new Error('DB error'));
 
         const req = new Request('http://localhost/api/profile/email', {
             method: 'POST',
@@ -117,7 +114,7 @@ describe('POST /api/profile/email', () => {
 
     it('accepts valid email with subdomain', async () => {
         getUserIdFromCookie.mockResolvedValue('user-123');
-        pool.query.mockResolvedValue({});
+        query.mockResolvedValue({});
 
         const req = new Request('http://localhost/api/profile/email', {
             method: 'POST',
@@ -130,7 +127,7 @@ describe('POST /api/profile/email', () => {
 
     it('accepts valid email with special characters', async () => {
         getUserIdFromCookie.mockResolvedValue('user-123');
-        pool.query.mockResolvedValue({});
+        query.mockResolvedValue({});
 
         const req = new Request('http://localhost/api/profile/email', {
             method: 'POST',

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pool, query } from "@/lib/db";
+import { query, getClient } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 import crypto from "node:crypto";
 
@@ -34,7 +34,7 @@ export async function POST(req) {
   const plan = planRes.rows[0];
   if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
 
-  const client = await pool.connect();
+  const client = await getClient();
   try {
     await client.query("BEGIN");
 

@@ -1,7 +1,7 @@
 // src/app/api/change-password/route.js
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import pool from "@/lib/db";
+import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 import { validateStrongPassword } from "@/lib/password";
 

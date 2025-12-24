@@ -1,6 +1,6 @@
 // app/api/matches/_common.js
 import { NextResponse } from "next/server";
-import { pool } from "@/lib/db";
+import { query } from "@/lib/db";
 
 /** Keep 0 while match_score() is being finalized */
 export const SCORE_MIN = 0;
@@ -23,9 +23,8 @@ export async function buildCommonParts(meId, sp) {
   // ✅ Get current user's gender to filter for opposite gender
   let oppositeGender = null;
   if (meId) {
-    const client = await pool.connect();
     try {
-      const { rows } = await client.query(
+      const { rows } = await query(
         `SELECT gender FROM matrimony_profiles WHERE user_id = $1 LIMIT 1`,
         [meId]
       );
@@ -33,8 +32,8 @@ export async function buildCommonParts(meId, sp) {
       if (currentUserGender) {
         oppositeGender = currentUserGender.toLowerCase() === 'male' ? 'Female' : 'Male';
       }
-    } finally {
-      client.release();
+    } catch (err) {
+      console.error('Error fetching user gender:', err);
     }
   }
 
@@ -121,17 +120,17 @@ export async function buildCommonParts(meId, sp) {
 }
 
 export async function runCountQuery({ from, whereParts = [], params = [] }) {
-  const client = await pool.connect();
   try {
     const sql = `
       SELECT COUNT(*)::int AS count
       FROM ${from}
       WHERE ${whereParts.length ? whereParts.join(" AND ") : "TRUE"}
     `;
-    const { rows } = await client.query(sql, params);
+    const { rows } = await query(sql, params);
     return rows?.[0]?.count || 0;
-  } finally {
-    client.release();
+  } catch (err) {
+    console.error('Error in runCountQuery:', err);
+    return 0;
   }
 }
 
@@ -149,7 +148,6 @@ export async function runListQuery({
   orderBy,
   additionalSelect = "",
 }) {
-  const client = await pool.connect();
   try {
     const extra = additionalSelect?.trim() ? `, ${additionalSelect.trim()}` : "";
 
@@ -176,10 +174,11 @@ export async function runListQuery({
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const { rows } = await client.query(sql, params);
+    const { rows } = await query(sql, params);
     return rows || [];
-  } finally {
-    client.release();
+  } catch (err) {
+    console.error('Error in runListQuery:', err);
+    return [];
   }
 }
 

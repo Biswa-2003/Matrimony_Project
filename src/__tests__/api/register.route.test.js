@@ -18,7 +18,7 @@ jest.mock("bcryptjs", () => ({
     hash: jest.fn(() => Promise.resolve("hashed-password")),
 }));
 
-import pool from "@/lib/db";
+import { query } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
 import { validateStrongPassword } from "@/lib/password";
 

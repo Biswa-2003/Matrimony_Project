@@ -58,5 +58,9 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-export default pool;
+// ✅ Only export query function (not pool) for Vercel compatibility
+// This prevents build-time DB connections
 export const query = (text, params) => pool.query(text, params);
+
+// ✅ Export getClient for transactions
+export const getClient = () => pool.connect();

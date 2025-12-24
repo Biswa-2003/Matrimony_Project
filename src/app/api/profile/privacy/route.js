@@ -1,6 +1,6 @@
 // src/app/api/profile/privacy/route.js
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
