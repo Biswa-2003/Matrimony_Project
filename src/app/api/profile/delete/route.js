@@ -15,7 +15,7 @@ export async function POST(req) {
     }
 
     // optional: log reason somewhere
-    await pool.query(
+    await query(
       `
       INSERT INTO user_delete_logs (user_id, reason, created_at)
       VALUES ($1, $2, NOW())
@@ -24,12 +24,12 @@ export async function POST(req) {
     ).catch(() => { }); // ignore if table not present
 
     // delete profile first (FKs)
-    await pool.query("DELETE FROM matrimony_profiles WHERE user_id = $1", [
+    await query("DELETE FROM matrimony_profiles WHERE user_id = $1", [
       userId,
     ]);
 
     // finally delete user
-    await pool.query("DELETE FROM users WHERE id = $1", [userId]);
+    await query("DELETE FROM users WHERE id = $1", [userId]);
 
     return NextResponse.json({ message: "Profile deleted successfully." });
   } catch (err) {

@@ -14,7 +14,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
 
-    await pool.query(
+    await query(
       `
       INSERT INTO user_preferences (user_id, alert_email, alert_sms)
       VALUES ($1, $2, $3)

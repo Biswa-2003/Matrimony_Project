@@ -12,7 +12,7 @@ export async function GET(req) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await query(
       `
       SELECT u.phone, mp.parent_phone, mp.photo_locked
       FROM users u
@@ -52,7 +52,7 @@ export async function POST(req) {
     }
 
     // Update users.phone and matrimony_profiles.phone_parent, photo_locked
-    await pool.query(
+    await query(
       `
       UPDATE users SET phone = $1, updated_at = NOW()
       WHERE id = $2
@@ -60,7 +60,7 @@ export async function POST(req) {
       [primaryNumber || null, userId]
     );
 
-    await pool.query(
+    await query(
       `
       UPDATE matrimony_profiles
       SET parent_phone = $1,

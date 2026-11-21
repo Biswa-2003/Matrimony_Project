@@ -3,9 +3,13 @@
 import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import './AIAssistant.css';
 
 export default function AIAssistant() {
+    const pathname = usePathname();
+    if (pathname?.startsWith('/admin')) return null;
+
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
         {

@@ -3,6 +3,7 @@ import BootstrapClientLoader from './components/BootstrapClientLoader'; // Boots
 import DashNav from '@/app/components/dashnav';
 import Footer from '@/app/components/footer';
 import AIAssistant from '@/app/components/AIAssistant';
+import MainWrapper from '@/app/components/MainWrapper';
 import { Inter, Poppins } from 'next/font/google';
 import './globals.css';
 
@@ -20,8 +21,8 @@ const poppins = Poppins({
 });
 
 export const metadata = {
-  title: 'MatriMoney',
-  description: 'Matrimony platform',
+  title: 'MatriMoney - Modern Matrimony Platform',
+  description: 'Find your perfect life partner on the most trusted Indian matrimony platform.',
 };
 
 export default function RootLayout({ children }) {
@@ -34,10 +35,10 @@ export default function RootLayout({ children }) {
         {/* ✅ Keep Navbar mounted across all pages */}
         <DashNav />
 
-        {/* ✅ Add margin-top so content isn't hidden behind navbar */}
-        <main style={{ marginTop: '90px' }}>
+        {/* ✅ Dynamic wrapper for public and admin pages */}
+        <MainWrapper>
           {children}
-        </main>
+        </MainWrapper>
 
         {/* ✅ Footer below everything */}
         <Footer />

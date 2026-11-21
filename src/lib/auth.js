@@ -29,3 +29,36 @@ export async function getAuthUser() {
   const id = await getUserIdFromCookie();
   return id ? { id } : null;
 }
+
+/**
+ * Returns full JWT payload or null.
+ */
+export async function getAuthPayload() {
+  const c = await cookies();
+  const token = c.get('token')?.value || c.get('jwt')?.value;
+  if (!token) return null;
+
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks if current authenticated user has admin role.
+ */
+export async function isAdmin() {
+  const payload = await getAuthPayload();
+  if (!payload?.id) return false;
+  if (payload.role === 'admin') return true;
+
+  // Fallback DB check
+  try {
+    const { query } = await import('@/lib/db');
+    const res = await query('SELECT role FROM users WHERE id = $1', [payload.id]);
+    return res.rows[0]?.role === 'admin';
+  } catch {
+    return false;
+  }
+}

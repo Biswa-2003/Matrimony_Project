@@ -409,6 +409,11 @@ export default function DashNav() {
 
   // Global Navigation Logic
 
+  // If on admin route, don't render user navbar
+  if (pathname?.startsWith('/admin')) {
+    return null;
+  }
+
   // ✅ If still checking auth, show nothing (prevents flash)
   if (isCheckingAuth) {
     return null; // or return a minimal loading navbar if you prefer
@@ -556,6 +561,15 @@ export default function DashNav() {
                   <i className="bi bi-chevron-down small text-muted"></i>
                 </Dropdown.Toggle>
                 <Dropdown.Menu className="shadow border-0 rounded-4 mt-2 p-2">
+                  {/* Admin Panel Quick Link */}
+                  {user?.role === 'admin' && (
+                    <>
+                      <Dropdown.Item as={Link} href="/admin" className="rounded-2 py-2 text-danger fw-bold bg-danger-subtle mb-1">
+                        <i className="bi bi-shield-lock-fill me-2"></i> Admin Panel
+                      </Dropdown.Item>
+                      <Dropdown.Divider />
+                    </>
+                  )}
                   <Dropdown.Header className="text-uppercase small fw-bold text-muted">Account</Dropdown.Header>
                   <Dropdown.Item as={Link} href="/dashboard/profile-edit" className="rounded-2 py-2">
                     <i className="bi bi-person me-2 text-primary"></i> Edit Profile

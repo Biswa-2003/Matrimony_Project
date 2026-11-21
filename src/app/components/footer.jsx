@@ -2,10 +2,13 @@
 
 import React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 
 const Footer = () => {
+  const pathname = usePathname();
+  if (pathname?.startsWith('/admin')) return null;
   return (
     <footer className="text-white pt-5 pb-3 mt-auto" style={{ backgroundColor: 'var(--brand-maroon, #800020)' }}>
       <div className="container">
@@ -89,8 +92,11 @@ const Footer = () => {
         <div className="container">
           <div className="d-flex flex-column flex-md-row justify-content-between align-items-center small opacity-50">
             <div className="d-flex gap-4 flex-wrap justify-content-center justify-content-md-start mb-2 mb-md-0">
-              <Link href="/privacy" className="text-reset text-decoration-none hover-link">Privacy Policy</Link>
-              <Link href="/terms" className="text-reset text-decoration-none hover-link">Terms of Use</Link>
+              <Link href="/matrimoney/aboutus" className="text-reset text-decoration-none hover-link">Privacy Policy</Link>
+              <Link href="/matrimoney/aboutus" className="text-reset text-decoration-none hover-link">Terms of Use</Link>
+              <Link href="/admin" className="text-warning text-decoration-none hover-link fw-semibold">
+                <i className="bi bi-shield-lock-fill me-1"></i> Admin Portal
+              </Link>
             </div>
             <div className="text-center text-md-end">
               &copy; {new Date().getFullYear()} MatriMoney. All rights reserved.

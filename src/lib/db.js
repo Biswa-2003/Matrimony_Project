@@ -1,66 +1,45 @@
-// import pkg from 'pg';
-// const { Pool } = pkg;
-
-// // ✅ Create pool with proper configuration for Neon
-// let pool;
-
-// try {
-//   const DATABASE_URL = process.env.DATABASE_URL;
-
-//   if (DATABASE_URL) {
-//     // ✅ Using Neon connection string
-//     pool = new Pool({
-//       connectionString: DATABASE_URL,
-//       ssl: {
-//         rejectUnauthorized: false,
-//       },
-//     });
-//     console.log('✅ Database pool created with DATABASE_URL');
-//   } else {
-//     // ✅ Fallback to individual environment variables
-//     pool = new Pool({
-//       user: process.env.DB_USER,
-//       host: process.env.DB_HOST,
-//       database: process.env.DB_NAME,
-//       password: process.env.DB_PASSWORD,
-//       port: process.env.DB_PORT || 5432,
-//     });
-//     console.log('✅ Database pool created with individual env vars');
-//   }
-// } catch (error) {
-//   console.error('❌ Error creating database pool:', error);
-//   throw error;
-// }
-
-// // ✅ Export both pool and query function
-// export { pool };
-
-// export const query = async (text, params) => {
-//   if (!pool) {
-//     throw new Error('Database pool is not initialized');
-//   }
-//   return pool.query(text, params);
-// };
-
-// export default pool;
-
 import pkg from "pg";
 const { Pool } = pkg;
 
-const DATABASE_URL = process.env.DATABASE_URL;
+let poolInstance = null;
 
-if (!DATABASE_URL) {
-  throw new Error("DATABASE_URL is missing. Neon DB not configured.");
+export function getPool() {
+  if (!poolInstance) {
+    const DATABASE_URL = process.env.DATABASE_URL;
+
+    if (DATABASE_URL) {
+      const isLocal = DATABASE_URL.includes("localhost") || DATABASE_URL.includes("127.0.0.1");
+      poolInstance = new Pool({
+        connectionString: DATABASE_URL,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+      });
+    } else if (process.env.DB_HOST && process.env.DB_USER) {
+      const isLocal = process.env.DB_HOST === "localhost" || process.env.DB_HOST === "127.0.0.1";
+      poolInstance = new Pool({
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+      });
+    } else {
+      throw new Error("Database configuration is missing (DATABASE_URL or DB_* environment variables).");
+    }
+  }
+  return poolInstance;
 }
 
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+export const pool = new Proxy({}, {
+  get(target, prop) {
+    const actualPool = getPool();
+    const value = actualPool[prop];
+    return typeof value === "function" ? value.bind(actualPool) : value;
+  }
 });
 
-// ✅ Only export query function (not pool) for Vercel compatibility
-// This prevents build-time DB connections
-export const query = (text, params) => pool.query(text, params);
+export const query = (text, params) => getPool().query(text, params);
 
-// ✅ Export getClient for transactions
-export const getClient = () => pool.connect();
+export const getClient = () => getPool().connect();
+
+export default pool;

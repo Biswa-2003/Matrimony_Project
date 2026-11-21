@@ -83,6 +83,7 @@ export async function POST(request) {
         name: user.first_name,
         email: user.email,
         matri_id: user.matri_id,
+        role: user.role || "user",
       },
       JWT_SECRET,
       { expiresIn: "2h" }
@@ -96,8 +97,10 @@ export async function POST(request) {
         user: {
           id: user.id,
           name: user.first_name,
+          first_name: user.first_name,
+          last_name: user.last_name,
           email: user.email,
-          // matri_id: user.matri_id,
+          role: user.role || "user",
         },
       },
       { status: 200 }

@@ -14,7 +14,7 @@ export async function POST(req) {
       );
     }
 
-    const { rows } = await pool.query(
+    const { rows } = await query(
       `SELECT otp, otp_expiry 
        FROM otp_verification 
        WHERE email = $1`,
@@ -46,7 +46,7 @@ export async function POST(req) {
     }
 
     // success → you can delete the OTP so it can't be reused
-    await pool.query(`DELETE FROM otp_verification WHERE email = $1`, [email]);
+    await query(`DELETE FROM otp_verification WHERE email = $1`, [email]);
 
     return NextResponse.json({ message: "OTP verified successfully." });
   } catch (err) {

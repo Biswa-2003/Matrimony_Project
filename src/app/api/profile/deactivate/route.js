@@ -22,7 +22,7 @@ export async function POST(req) {
       until = d;
     }
 
-    await pool.query(
+    await query(
       `
       UPDATE matrimony_profiles
       SET is_active = false,

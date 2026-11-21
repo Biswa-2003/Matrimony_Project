@@ -31,7 +31,7 @@ export async function POST(req) {
         otp        = EXCLUDED.otp,
         otp_expiry = EXCLUDED.otp_expiry
     `;
-    await pool.query(insertQuery, [email, phone || null, otp, expiry]);
+    await query(insertQuery, [email, phone || null, otp, expiry]);
     console.log("✅ OTP stored in DB");
 
     // 2) Send Mail

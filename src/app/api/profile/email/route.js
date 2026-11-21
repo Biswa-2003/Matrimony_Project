@@ -29,7 +29,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
 
-    await pool.query(
+    await query(
       "UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2",
       [email, userId]
     );

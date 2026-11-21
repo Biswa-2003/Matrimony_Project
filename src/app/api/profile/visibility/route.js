@@ -14,7 +14,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
 
-    await pool.query(
+    await query(
       `
       UPDATE matrimony_profiles
       SET profile_visibility = $1, updated_at = NOW()
