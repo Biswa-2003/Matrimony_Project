@@ -63,7 +63,7 @@ export default function AdminLayout({ children }) {
         }
       })
       .catch(() => {
-        if (!cancelled) window.location.href = '/matrimoney/login';
+        if (!cancelled) window.location.href = '/matrimoney/login?as=admin';
       });
     return () => {
       cancelled = true;
@@ -91,7 +91,7 @@ export default function AdminLayout({ children }) {
     try {
       await fetch('/api/logout', { method: 'POST', credentials: 'include' });
     } catch {}
-    window.location.href = '/matrimoney/login';
+    window.location.href = '/matrimoney/login?as=admin';
   };
 
   if (state === 'loading') {

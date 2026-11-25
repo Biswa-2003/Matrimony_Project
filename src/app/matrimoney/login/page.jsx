@@ -26,9 +26,22 @@ export default function LoginPage() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [status, setStatus] = useState({ type: "", text: "" });
   const [isLoading, setIsLoading] = useState(false);
+  // "member" or "admin" - same sign-in, but the admin tab only lets admin accounts through
+  const [mode, setMode] = useState("member");
+  const isAdmin = mode === "admin";
+
+  const switchMode = (next) => {
+    setMode(next);
+    setStatus({ type: "", text: "" });
+    const url = new URL(window.location.href);
+    if (next === "admin") url.searchParams.set("as", "admin");
+    else url.searchParams.delete("as");
+    window.history.replaceState(null, "", url);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("as") === "admin") setMode("admin");
     if (params.get("registered") === "true") {
       setStatus({ type: "success", text: "Welcome to MatriMoney! Your profile is ready — please sign in." });
     } else if (params.get("reset") === "true") {
@@ -52,7 +65,11 @@ export default function LoginPage() {
         credentials: "include",
       });
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && isAdmin && data.user?.role !== "admin") {
+        // a member account on the admin tab: don't leave them half signed in
+        await fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {});
+        setStatus({ type: "error", text: t("login.notAdmin") });
+      } else if (res.ok) {
         setStatus({ type: "success", text: `Welcome back, ${data.user?.first_name || data.user?.name || "Member"}…` });
         window.location.href = data.user?.role === "admin" ? "/admin" : "/dashboard/myhome";
       } else {
@@ -77,9 +94,30 @@ export default function LoginPage() {
       artTitle="Find Love That Honours Tradition"
       artText="Thousands of families have found their perfect match on MatriMoney. Yours could be next."
     >
-      <span className="eyebrow mb-2">{t("login.eyebrow")}</span>
-      <h2 className="mb-1" style={{ fontSize: "2.4rem" }}>{t("login.title")}</h2>
-      <p className="text-muted small mb-4">{t("login.sub")}</p>
+      <div className="login-switch mb-4" role="tablist" aria-label="Sign in as">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!isAdmin}
+          className={`login-switch-btn ${!isAdmin ? "active" : ""}`}
+          onClick={() => switchMode("member")}
+        >
+          <i className="bi bi-person-heart" /> {t("login.asMember")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isAdmin}
+          className={`login-switch-btn ${isAdmin ? "active" : ""}`}
+          onClick={() => switchMode("admin")}
+        >
+          <i className="bi bi-shield-lock" /> {t("login.asAdmin")}
+        </button>
+      </div>
+
+      <span className="eyebrow mb-2">{t(isAdmin ? "login.adminEyebrow" : "login.eyebrow")}</span>
+      <h2 className="mb-1" style={{ fontSize: "2.4rem" }}>{t(isAdmin ? "login.adminTitle" : "login.title")}</h2>
+      <p className="text-muted small mb-4">{t(isAdmin ? "login.adminSub" : "login.sub")}</p>
 
       {status.text && (
         <div className={`alert ${status.type === "error" ? "alert-danger" : "alert-success"} py-2 small d-flex gap-2 align-items-center`} role="alert">
@@ -90,14 +128,14 @@ export default function LoginPage() {
 
       <form onSubmit={handleLogin} noValidate>
         <div className="mb-3">
-          <label className="form-label" htmlFor="login-id">{t("login.id")}</label>
+          <label className="form-label" htmlFor="login-id">{t(isAdmin ? "login.adminId" : "login.id")}</label>
           <div className="input-group">
-            <span className="input-group-text"><i className="bi bi-person" /></span>
+            <span className="input-group-text"><i className={`bi ${isAdmin ? "bi-shield-lock" : "bi-person"}`} /></span>
             <input
               id="login-id"
               type="text"
               className="form-control"
-              placeholder="you@example.com or 9876543210"
+              placeholder={isAdmin ? "admin@yourdomain.com" : "you@example.com or 9876543210"}
               value={emailOrPhone}
               onChange={(e) => setEmailOrPhone(e.target.value)}
               autoComplete="username"
@@ -132,11 +170,11 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <button type="submit" disabled={isLoading} className="btn btn-primary w-100 py-3 mt-3 mb-3">
+        <button type="submit" disabled={isLoading} className={`btn w-100 py-3 mt-3 mb-3 ${isAdmin ? "btn-dark" : "btn-primary"}`}>
           {isLoading ? (
             <><span className="spinner-border spinner-border-sm me-2" role="status" /> {t("login.signingIn")}</>
           ) : (
-            <>{t("login.submit")} <i className="bi bi-arrow-right ms-1" /></>
+            <>{t(isAdmin ? "login.adminSubmit" : "login.submit")} <i className="bi bi-arrow-right ms-1" /></>
           )}
         </button>
       </form>
@@ -157,10 +195,16 @@ export default function LoginPage() {
         </div>
       )}
 
-      <div className="text-center small">
-        <span className="text-muted">{t("login.new")} </span>
-        <Link href="/#join" className="text-danger fw-semibold">{t("login.create")}</Link>
-      </div>
+      {isAdmin ? (
+        <p className="text-center small text-muted mb-0">
+          <i className="bi bi-info-circle me-1" /> {t("login.adminNote")}
+        </p>
+      ) : (
+        <div className="text-center small">
+          <span className="text-muted">{t("login.new")} </span>
+          <Link href="/#join" className="text-danger fw-semibold">{t("login.create")}</Link>
+        </div>
+      )}
     </AuthShell>
   );
 }

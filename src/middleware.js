@@ -68,6 +68,8 @@ export function middleware(request) {
 
     // URLs
     const loginUrl = new URL('/matrimoney/login', request.url)
+    // admin pages open the login page on its Admin tab
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) loginUrl.searchParams.set('as', 'admin')
     const dashboardHomeUrl = new URL('/dashboard/myhome', request.url)
 
     // -------------------------------------------------------------------------
