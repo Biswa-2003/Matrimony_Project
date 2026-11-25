@@ -255,6 +255,8 @@ const STATEMENTS = [
   `ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT NOW()`,
   `ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS delivery text`,
   `ALTER TABLE otp_verification ADD COLUMN IF NOT EXISTS issued_by uuid`,
+  // profile verification flag (older databases got it from a one-off script)
+  `ALTER TABLE matrimony_profiles ADD COLUMN IF NOT EXISTS is_verified boolean DEFAULT false`,
   // images can live in Vercel Blob instead of the database
   `ALTER TABLE media_files ADD COLUMN IF NOT EXISTS blob_url text`,
   `ALTER TABLE media_files ALTER COLUMN data DROP NOT NULL`,
