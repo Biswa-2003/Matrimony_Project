@@ -284,6 +284,15 @@ function ProfileSettingsInner() {
                 {/* Change Password */}
                 {activeTab === "password" && (
                   <div className="fade-in-up">
+                    {searchParams?.get("must") === "1" && (
+                      <div className="alert alert-warning d-flex gap-2 align-items-start small" role="alert">
+                        <i className="bi bi-shield-exclamation fs-5" />
+                        <div>
+                          <strong>Please choose your own password now.</strong> You signed in with a temporary
+                          password from our support team. Your current password is that temporary one.
+                        </div>
+                      </div>
+                    )}
                     <h5 className="fw-bold text-maroon mb-3">Change Password</h5>
                     <p className="text-muted mb-4">
                       Use at least 10 characters with upper- and lower-case letters, a number and a symbol. Changing it signs you out on all other devices.

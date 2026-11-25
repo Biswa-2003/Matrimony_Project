@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import PasswordHelp from './PasswordHelp';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);
@@ -14,6 +15,7 @@ export default function AdminUsersPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [pwMember, setPwMember] = useState(null); // member whose password is being reset
 
   // New user form state
   const [newUser, setNewUser] = useState({
@@ -433,6 +435,16 @@ export default function AdminUsersPage() {
                                 {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
                               </button>
                             </li>
+                            {u.role !== 'admin' && (
+                              <li>
+                                <button
+                                  className="dropdown-item py-2 rounded-2"
+                                  onClick={() => setPwMember(u)}
+                                >
+                                  <i className="bi bi-key text-info me-2"></i> Password help
+                                </button>
+                              </li>
+                            )}
                             <li><hr className="dropdown-divider" /></li>
                             <li>
                               <button
@@ -527,6 +539,15 @@ export default function AdminUsersPage() {
                 </div>
               </div>
               <div className="modal-footer bg-light">
+                {selectedUser.role !== 'admin' && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary me-auto"
+                    onClick={() => setPwMember(selectedUser)}
+                  >
+                    <i className="bi bi-key me-1"></i> Password help
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-outline-danger"
@@ -546,6 +567,8 @@ export default function AdminUsersPage() {
           </div>
         </div>
       )}
+
+      {pwMember && <PasswordHelp member={pwMember} onClose={() => setPwMember(null)} />}
 
       {/* Add New Member Modal */}
       {showAddModal && (

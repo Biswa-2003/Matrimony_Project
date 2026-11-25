@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
+import { ensureSchema } from "@/lib/schema";
 import { getUserIdFromCookie } from "@/lib/auth";
 import { validateStrongPassword } from "@/lib/password";
 import { limitOr429 } from "@/lib/rate-limit";
@@ -72,8 +73,9 @@ export async function POST(req) {
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
+    await ensureSchema();
     await query(
-      "UPDATE users SET password_hash = $1, updated_at = NOW(), password_changed_at = NOW() WHERE id = $2",
+      "UPDATE users SET password_hash = $1, updated_at = NOW(), password_changed_at = NOW(), must_change_password = false WHERE id = $2",
       [newHash, userId]
     );
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
+import { ensureSchema } from "@/lib/schema";
 import { validateStrongPassword } from "@/lib/password";
 import { clientIp, limitOr429 } from "@/lib/rate-limit";
 import { verifyResetToken, maskEmail } from "@/lib/password-reset";
@@ -42,12 +43,13 @@ export async function POST(request) {
     }
 
     const hashed = await bcrypt.hash(password, 10);
+    await ensureSchema();
     // Changing the hash also invalidates this link (it was signed with the old hash).
     // Clear any login lockout so the member can sign in straight away.
     await query(
       `UPDATE users
           SET password_hash = $1, password_changed_at = NOW(), updated_at = NOW(),
-              failed_login_attempts = 0, lock_until = NULL
+              failed_login_attempts = 0, lock_until = NULL, must_change_password = false
         WHERE id = $2`,
       [hashed, user.id]
     );

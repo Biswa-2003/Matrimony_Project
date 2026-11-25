@@ -19,6 +19,7 @@ export async function GET(request, context) {
       SELECT 
         u.*,
         mp.*,
+        mp.id AS profile_id,
         pht.photo_url,
         r.name AS religion_name,
         c.name AS caste_name,
@@ -67,6 +68,8 @@ export async function GET(request, context) {
 
     const user = userRes.rows[0];
     delete user.password_hash; // Don't expose hash
+    // u.* and mp.* both have "id" (the profile's wins), so put the account id back
+    user.id = id;
 
     return NextResponse.json({
       success: true,

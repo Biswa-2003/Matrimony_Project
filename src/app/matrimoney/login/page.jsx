@@ -72,7 +72,11 @@ export default function LoginPage() {
         setStatus({ type: "error", text: t(isAdmin ? "login.notAdmin" : "login.isAdmin") });
       } else if (res.ok) {
         setStatus({ type: "success", text: `Welcome back, ${data.user?.first_name || data.user?.name || "Member"}…` });
-        window.location.href = accountIsAdmin ? "/admin" : "/dashboard/myhome";
+        window.location.href = accountIsAdmin
+          ? "/admin"
+          : data.user?.must_change_password
+            ? "/dashboard/profile-setting?tab=password&must=1" // signed in with a temporary password from support
+            : "/dashboard/myhome";
       } else {
         setStatus({ type: "error", text: data.message || data.error || "Login failed. Please check your details." });
       }

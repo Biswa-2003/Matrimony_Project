@@ -100,6 +100,7 @@ export async function POST(request) {
           last_name: user.last_name,
           email: user.email,
           role: user.role || "user",
+          must_change_password: Boolean(user.must_change_password),
         },
       },
       { status: 200 }
