@@ -1,5 +1,7 @@
 'use client';
 
+import AnnouncementBar from './AnnouncementBar';
+
 import { usePathname } from 'next/navigation';
 
 export default function MainWrapper({ children }) {
@@ -8,6 +10,7 @@ export default function MainWrapper({ children }) {
 
   return (
     <main style={{ marginTop: isAdmin ? '0px' : '90px' }}>
+      <AnnouncementBar />
       {children}
     </main>
   );

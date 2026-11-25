@@ -4,12 +4,20 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyLogin } from "@/lib/auth";
 // Read JWT token from request
 function readTokenFromRequest(req) {
+    // NextRequest exposes req.cookies; a plain Request only has the Cookie header
+    const fromJar = (name) => req.cookies?.get?.(name)?.value;
+    const fromHeader = (name) => {
+        const raw = req.headers?.get?.('cookie') || '';
+        const m = raw.match(new RegExp(`(?:^|;\s*)${name}=([^;]+)`));
+        return m ? decodeURIComponent(m[1]) : undefined;
+    };
     const tokenFromCookie =
-        req.cookies.get('token')?.value ||
-        req.cookies.get('auth_token')?.value ||
-        req.cookies.get('auth')?.value ||
+        fromJar('token') || fromJar('auth_token') || fromJar('auth') ||
+        fromHeader('token') || fromHeader('auth_token') || fromHeader('auth') ||
         null;
 
     if (tokenFromCookie) return tokenFromCookie;
@@ -40,6 +48,7 @@ function feetInchesToCm(label) {
  * GET handler for simple ID search e.g. /api/search?matriId=DU123
  */
 export async function GET(req) {
+  { const limited = limitOr429(`search:${clientIp(req)}`, 60, 1 * 60 * 1000); if (limited) return limited; }
     const { searchParams } = new URL(req.url);
     const matriId = searchParams.get("matriId");
 
@@ -55,7 +64,7 @@ export async function GET(req) {
     if (token) {
         try {
             const secret = process.env.JWT_SECRET;
-            const decoded = jwt.verify(token, secret);
+            const decoded = await verifyLogin(token);
             const userId = decoded?.id ?? decoded?.userId;
 
             if (userId) {
@@ -141,6 +150,7 @@ function addWhere(where, params, value, clauseBuilder) {
  * POST handler for Advanced Search
  */
 export async function POST(req) {
+  { const limited = limitOr429(`search:${clientIp(req)}`, 60, 1 * 60 * 1000); if (limited) return limited; }
     const b = await req.json();
 
     // ✅ Get user's gender for filtering
@@ -150,7 +160,7 @@ export async function POST(req) {
     if (token) {
         try {
             const secret = process.env.JWT_SECRET;
-            const decoded = jwt.verify(token, secret);
+            const decoded = await verifyLogin(token);
             const userId = decoded?.id ?? decoded?.userId;
 
             if (userId) {

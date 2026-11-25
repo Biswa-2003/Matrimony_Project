@@ -21,6 +21,11 @@ export function middleware(request) {
         '/matrimoney/register', // Added register page
         '/matrimoney/forgot',
         '/matrimoney/reset-password',
+        '/matrimoney/privacy',
+        '/matrimoney/terms',
+        '/matrimoney/safety',
+        '/p', // family share links (signed, read-only)
+        '/matrimony', // community landing pages (SEO)
     ]
 
     // Public API Routes (accessible without login)
@@ -28,11 +33,18 @@ export function middleware(request) {
         '/api/login',
         '/api/register',
         '/api/forgot',
+        '/api/reset-password', // reset link is opened while logged out
+        '/api/cron', // scheduled jobs — each route checks CRON_SECRET itself
+        '/api/client-error', // crash reports from the browser (rate limited)
         '/api/auth', // e.g. send-otp
         '/api/lookups', // e.g. castes
         '/api/contact',
         '/api/ai-chat', // AI Assistant - accessible to everyone
+        '/api/assistant', // MatriMoney assistant (guests get help; personal answers need login)
         '/api/success-stories', // Success stories - public display
+        '/api/site-content', // admin-managed images + announcement (public read)
+        '/api/media', // stored site images
+        '/api/member-photo', // member photos — the route enforces photo lock itself
         '/api/payments/create-order' // Sometimes public, or maybe not. Assuming public for now or user checks. 
         // Actually usually payment requires login. strict it if needed. 
         // For now I'll leave payments protected if not explicitly public.
@@ -99,6 +111,7 @@ export const config = {
          * - favicon.ico (favicon file)
          * - extensions: svg, png, jpg, jpeg, webp
          */
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)',
+        // also skipped: SEO / PWA files (robots, sitemap, manifest, service worker, offline page) and icons/fonts
+        '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|manifest.webmanifest|sw.js|offline.html|.*\\.(?:svg|png|jpg|jpeg|webp|ico|woff2?)$).*)',
     ],
 }

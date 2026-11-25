@@ -20,6 +20,12 @@ jest.mock('@/lib/auth', () => ({
     getUserIdFromCookie: jest.fn(),
 }));
 
+// Rate limiting is covered by src/lib/rate-limit.test.js; keep these tests about the route logic.
+jest.mock('@/lib/rate-limit', () => ({
+    clientIp: () => 'test',
+    limitOr429: () => null,
+}));
+
 describe('POST /api/profile/email', () => {
     beforeEach(() => {
         jest.clearAllMocks();

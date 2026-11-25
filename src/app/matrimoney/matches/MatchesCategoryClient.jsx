@@ -2,91 +2,110 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BsInboxFill, BsHeartFill, BsGeoAltFill } from "react-icons/bs";
-import ProfileResultCard from "@/app/components/ProfileResultCard";
+import { AnimatePresence, motion } from "framer-motion";
 
 function cmToFeetInches(cm) {
   const n = Number(cm);
-  if (!n || Number.isNaN(n)) return '';
+  if (!n || Number.isNaN(n)) return "";
   const total = Math.round(n / 2.54);
-  const ft = Math.floor(total / 12);
-  const inch = total % 12;
-  return `${ft}ft ${inch}in`;
+  return `${Math.floor(total / 12)}ft ${total % 12}in`;
 }
 
-// Helper: Resolve Photo URL reliably
-const resolvePhoto = (p) => {
-  if (!p) return '/uploads/default.jpg';
-  if (p.startsWith('http') || p.startsWith('data:')) return p;
-  // If it already has /uploads prefix (ignoring leading slash variation)
-  if (p.startsWith('/uploads/') || p.startsWith('uploads/')) {
-    return p.startsWith('/') ? p : `/${p}`;
-  }
+const avatarFor = (it) =>
+  String(it?.gender || "").toLowerCase() === "male" ? "/images/avatar-male.svg" : "/images/avatar-female.svg";
+
+// Resolve a stored photo path to a URL without double-prefixing /uploads/
+const resolvePhoto = (p, it) => {
+  if (!p || /default\.jpg$/.test(p)) return avatarFor(it);
+  if (p.startsWith("http") || p.startsWith("data:")) return p;
+  if (p.startsWith("/uploads/") || p.startsWith("uploads/")) return p.startsWith("/") ? p : `/${p}`;
+  if (p.startsWith("/")) return p;
   return `/uploads/${p}`;
 };
 
-// Helper for detail view
-function MatchesDetailView({ it }) {
-  const name = it.full_name || [it.first_name, it.last_name].filter(Boolean).join(' ') || it.name || "User";
-  const location = [it.city_name, it.state_name, it.country_name].filter(Boolean).join(', ');
-  const pid = it.matri_id || it.user_id || 'ID-?';
-  const photo = resolvePhoto(it.photo || it.photo_url);
+const nameOf = (it) => it.full_name || [it.first_name, it.last_name].filter(Boolean).join(" ") || it.name || "Member";
 
-  const details = {
-    Age: String(it.age_years || it.age || '—'),
-    Height: it.height_cm ? cmToFeetInches(it.height_cm) : '—',
-    Religion: it.religion_name || '—',
-    Caste: it.caste_name || '—',
-    Location: location || '—',
-    Education: it.education || '—',
-    Profession: it.job_role || it.profession_name || it.profession || '—',
-  };
+function MatchesDetailView({ it }) {
+  const name = nameOf(it);
+  const location = [it.city_name, it.state_name, it.country_name].filter(Boolean).join(", ");
+  const pid = it.matri_id || it.user_id || "—";
+  const photo = resolvePhoto(it.photo || it.photo_url, it);
+  const isAvatar = photo.startsWith("/images/avatar");
+
+  const details = [
+    ["Age", it.age_years || it.age ? `${it.age_years || it.age} yrs` : "—"],
+    ["Height", it.height_cm ? cmToFeetInches(it.height_cm) : "—"],
+    ["Religion", it.religion_name || "—"],
+    ["Community", it.caste_name || "—"],
+    ["Education", it.education || it.education_name || "—"],
+    ["Profession", it.job_role || it.profession_name || it.profession || "—"],
+  ];
 
   return (
-    <div className="bg-white rounded-4 shadow-sm border p-4 fade-in-up h-100">
-      <div className="row align-items-start">
-        <div className="col-md-5 text-center mb-4 mb-md-0">
-          <div className="position-relative d-inline-block">
-            <img
-              src={photo}
-              className="rounded-4 shadow-sm object-fit-cover mb-3"
-              alt={name}
-              style={{ width: '100%', maxWidth: 280, aspectRatio: '3/4' }}
-              onError={(e) => e.target.src = '/uploads/default.jpg'}
-            />
-            <div className="position-absolute bottom-0 start-50 translate-middle-x mb-2">
-              <span className="badge bg-dark bg-opacity-75 backdrop-blur shadow-sm px-3 py-2">
-                {pid}
+    <motion.div
+      key={pid}
+      initial={{ opacity: 0, y: 20, rotateY: -6 }}
+      animate={{ opacity: 1, y: 0, rotateY: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+      className="luxe-card p-4 p-lg-5 h-100"
+      style={{ transformPerspective: 1200 }}
+    >
+      <div className="row g-4 align-items-start">
+        <div className="col-md-5">
+          <div className="gold-frame">
+            <div className="position-relative" style={{ background: "#f6ead0", aspectRatio: "4 / 5" }}>
+              <img
+                src={photo}
+                alt={name}
+                className="w-100 h-100"
+                style={{ objectFit: isAvatar ? "contain" : "cover", padding: isAvatar ? "16%" : 0 }}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = avatarFor(it);
+                  e.currentTarget.style.objectFit = "contain";
+                  e.currentTarget.style.padding = "16%";
+                }}
+              />
+              <span className="verified-chip" style={{ top: "auto", bottom: 12, right: 12 }}>
+                <i className="bi bi-person-badge" /> {pid}
               </span>
             </div>
           </div>
         </div>
 
         <div className="col-md-7">
-          <div className="mb-3">
-            <h2 className="fw-bold text-maroon mb-1">{name}</h2>
-            <p className="text-muted mb-0"><BsGeoAltFill className="me-1 text-secondary" /> {location}</p>
-          </div>
-
-          <hr className="opacity-10 my-4" />
+          <span className="eyebrow mb-2" style={{ fontSize: "0.62rem" }}>Suggested Match</span>
+          <h2 className="mb-1" style={{ fontSize: "2.6rem" }}>{name}</h2>
+          {location && (
+            <p className="text-muted mb-3">
+              <i className="bi bi-geo-alt text-gold me-1" /> {location}
+            </p>
+          )}
+          <span className="ornament start mb-4" />
 
           <div className="row g-3 mb-4">
-            {Object.entries(details).map(([k, v]) => (
+            {details.map(([k, v]) => (
               <div className="col-6" key={k}>
-                <small className="text-uppercase text-muted fw-bold" style={{ fontSize: '0.7rem' }}>{k}</small>
-                <p className="fw-semibold text-dark mb-0">{v}</p>
+                <div className="match-fact">
+                  <small>{k}</small>
+                  <div>{v}</div>
+                </div>
               </div>
             ))}
           </div>
 
-          <div className="d-flex gap-2 mt-auto">
-            <Link href={`/matrimoney/profile-details/${pid}`} className="btn btn-primary rounded-pill px-4 fw-bold flex-grow-1 shadow-sm">
-              View Full Profile
+          <div className="d-flex flex-wrap gap-2">
+            <Link href={`/matrimoney/profile-details/${pid}`} className="btn btn-primary px-4 flex-grow-1">
+              View Full Profile <i className="bi bi-arrow-right ms-1" />
+            </Link>
+            <Link href="/matrimoney/shortlist" className="btn btn-outline-danger px-3" title="My shortlist">
+              <i className="bi bi-bookmark-heart" />
             </Link>
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -112,100 +131,129 @@ export default function MatchesCategoryClient({ endpoint }) {
         if (!aborted) setLoading(false);
       }
     })();
-    return () => { aborted = true; };
+    return () => {
+      aborted = true;
+    };
   }, [endpoint]);
 
-  const selectedItem = items.find(it => (it.matri_id || it.user_id) === selectedId);
+  const selectedItem = items.find((it) => (it.matri_id || it.user_id) === selectedId);
 
-  if (loading) return (
-    <div className="text-center py-5 bg-white rounded-4 shadow-sm fade-in-up">
-      <div className="spinner-border text-primary" role="status" />
-      <p className="mt-3 text-muted">Loading profiles...</p>
-    </div>
-  );
-
-  if (!items.length) return (
-    <div className="text-center p-5 bg-white rounded-4 shadow-sm border-0 fade-in-up mx-auto" style={{ maxWidth: 600 }}>
-      <div className="mb-4">
-        <div className="bg-light rounded-circle d-inline-flex align-items-center justify-content-center" style={{ width: 80, height: 80 }}>
-          <BsInboxFill size="2rem" className="text-muted opacity-50" />
+  if (loading)
+    return (
+      <div className="row g-4">
+        <div className="col-lg-4 col-xl-3 d-flex flex-column gap-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="luxe-card loading-skeleton" style={{ height: 76 }} />
+          ))}
+        </div>
+        <div className="col-lg-8 col-xl-9">
+          <div className="luxe-card loading-skeleton" style={{ height: 420 }} />
         </div>
       </div>
-      <h4 className="fw-bold text-dark mb-2">No Profiles Found</h4>
-      <p className="text-muted mb-0">
-        We couldn't find any profiles in this category right now. Check back later!
-      </p>
-    </div>
-  );
+    );
+
+  if (!items.length)
+    return (
+      <div className="luxe-card text-center p-5 mx-auto" style={{ maxWidth: 620 }}>
+        <img src="/images/ritual-rings.svg" alt="" width={90} height={90} className="mb-3 p-3 rounded-circle" style={{ background: "var(--royal)" }} />
+        <h3 className="mb-2" style={{ fontSize: "2rem" }}>No profiles here yet</h3>
+        <p className="text-muted mb-4">
+          New members join every day. Complete your profile and partner preferences to receive better matches.
+        </p>
+        <div className="d-flex gap-2 justify-content-center flex-wrap">
+          <Link href="/dashboard/profile-edit" className="btn btn-primary px-4">Complete My Profile</Link>
+          <Link href="/matrimoney/preference-search" className="btn btn-outline-danger px-4">Search Profiles</Link>
+        </div>
+      </div>
+    );
 
   return (
     <>
       <div className="row g-4">
-        {/* Left Sidebar */}
         <div className="col-lg-4 col-xl-3">
-          <div className="d-flex justify-content-between align-items-center mb-3 px-2">
-            <span className="small text-muted fw-bold text-uppercase">Profiles ({items.length})</span>
+          <div className="d-flex justify-content-between align-items-center mb-3 px-1">
+            <span className="eyebrow" style={{ fontSize: "0.62rem" }}>{items.length} Profiles</span>
           </div>
-          <div className="d-flex flex-column gap-2" style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
-            {items.map((it, i) => {
+          <div className="d-flex flex-column gap-2 match-list">
+            {items.map((it) => {
               const pid = it.matri_id || it.user_id;
               const active = selectedId === pid;
-              const name = it.full_name || [it.first_name, it.last_name].filter(Boolean).join(' ') || "User";
-              let photo = it.photo || it.photo_url || '/uploads/default.jpg';
-              if (!photo.startsWith('http') && !photo.startsWith('data:')) photo = `/uploads/${photo}`;
-
               return (
-                <div
-                  key={i}
+                <button
+                  type="button"
+                  key={pid}
                   onClick={() => setSelectedId(pid)}
-                  className={`d-flex align-items-center gap-3 p-3 rounded-4 cursor-pointer transition-all border ${active ? 'bg-white border-primary shadow-sm' : 'bg-white border-transparent hover-bg-light'}`}
-                  style={{ borderLeft: active ? '4px solid var(--brand-primary)' : '1px solid transparent' }}
+                  className={`match-item ${active ? "active" : ""}`}
+                  aria-pressed={active}
                 >
                   <img
-                    src={photo}
+                    src={resolvePhoto(it.photo || it.photo_url, it)}
                     alt=""
-                    className="rounded-circle object-fit-cover shadow-sm"
-                    width={50} height={50}
-                    onError={(e) => e.target.src = '/uploads/default.jpg'}
+                    width={52}
+                    height={52}
+                    className="rounded-circle object-fit-cover"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = avatarFor(it);
+                    }}
                   />
-                  <div className="overflow-hidden">
-                    <h6 className={`mb-0 fw-bold text-truncate ${active ? 'text-primary' : 'text-dark'}`}>{name}</h6>
-                    <small className="text-muted">{it.age_years || it.age || 'N/A'} yrs</small>
+                  <div className="overflow-hidden text-start">
+                    <div className="match-name text-truncate">{nameOf(it)}</div>
+                    <small className="text-muted">
+                      {it.age_years || it.age ? `${it.age_years || it.age} yrs` : "—"}
+                      {it.city_name ? ` · ${it.city_name}` : ""}
+                    </small>
                   </div>
-                  {active && <div className="ms-auto"><BsHeartFill className="text-danger" /></div>}
-                </div>
+                  <i className={`bi ${active ? "bi-heart-fill" : "bi-chevron-right"} ms-auto`} />
+                </button>
               );
             })}
           </div>
         </div>
 
-        {/* Right Detail View */}
         <div className="col-lg-8 col-xl-9">
-          {selectedItem ? (
-            <MatchesDetailView it={selectedItem} />
-          ) : (
-            <div className="h-100 d-flex align-items-center justify-content-center text-muted">Select a profile</div>
-          )}
+          <AnimatePresence mode="wait">
+            {selectedItem ? (
+              <MatchesDetailView key={selectedId} it={selectedItem} />
+            ) : (
+              <div className="h-100 d-flex align-items-center justify-content-center text-muted">Select a profile</div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
       <style jsx global>{`
-        .hover-lift { transition: transform 0.2s ease; }
-        .hover-lift:hover { transform: translateY(-5px); }
-        .cursor-pointer { cursor: pointer; }
-        .hover-bg-light:hover { background-color: rgba(255,255,255,0.8) !important; }
-        .transition-all { transition: all 0.2s ease; }
-        .object-fit-cover { object-fit: cover; }
-        .backdrop-blur { backdrop-filter: blur(5px); }
-        .text-maroon { color: var(--brand-maroon, #800020) !important; }
-        
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        .match-list { max-height: calc(100vh - 220px); overflow-y: auto; padding: 2px; }
+        .match-item {
+          display: flex; align-items: center; gap: 12px;
+          width: 100%;
+          padding: 12px 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(201, 162, 74, 0.22);
+          background: #fff;
+          color: var(--muted);
+          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .fade-in-up {
-            animation: fadeInUp 0.4s ease-out forwards;
+        .match-item img { border: 2px solid var(--gold-pale); }
+        .match-item:hover { transform: translateX(4px); border-color: var(--gold); box-shadow: var(--shadow-sm); }
+        .match-item.active {
+          background: var(--royal);
+          border-color: var(--gold);
+          color: var(--gold-light);
+          box-shadow: var(--shadow-md);
         }
+        .match-item.active .text-muted { color: rgba(255, 255, 255, 0.65) !important; }
+        .match-item.active img { border-color: var(--gold); }
+        .match-name { font-family: var(--font-poppins), sans-serif; font-weight: 600; color: var(--maroon-900); }
+        .match-item.active .match-name { color: #fff; }
+        .match-fact {
+          padding: 12px 14px;
+          border-radius: 14px;
+          background: #fffdf9;
+          border: 1px solid rgba(201, 162, 74, 0.25);
+        }
+        .match-fact small { display: block; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+        .match-fact div { font-weight: 600; color: var(--ink); }
       `}</style>
     </>
   );

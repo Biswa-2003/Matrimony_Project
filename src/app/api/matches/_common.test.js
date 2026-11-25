@@ -1,8 +1,8 @@
 import { buildCommonParts, runListQuery, runCountQuery, respondCountOrList, normalizeWhereParts } from './_common';
 import { NextResponse } from 'next/server';
 
-// Mock functions that will be shared
-let queryMock, releaseMock;
+// Mock functions that will be shared (var: jest.mock factories are hoisted above `let` bindings)
+var queryMock, releaseMock;
 
 jest.mock('@/lib/db', () => {
     queryMock = jest.fn();

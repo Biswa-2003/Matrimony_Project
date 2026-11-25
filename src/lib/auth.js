@@ -1,6 +1,19 @@
 // src/lib/auth.js
 import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
+import { isSessionLive } from '@/lib/sessions';
+
+/**
+ * Verify a LOGIN token: signature + expiry (jwt.verify), not a special-purpose token,
+ * and the session hasn't been logged out / invalidated by a password change.
+ * Throws like jwt.verify does, so existing try/catch call sites keep working.
+ */
+export async function verifyLogin(token) {
+  const payload = jwt.verify(token, process.env.JWT_SECRET);
+  if (payload?.purpose) throw new Error('not a login token');
+  if (!(await isSessionLive(payload))) throw new Error('session ended');
+  return payload;
+}
 
 /**
  * Reads "token" or "jwt" cookie, verifies JWT,
@@ -12,7 +25,7 @@ export async function getUserIdFromCookie() {
   if (!token) return null;
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = await verifyLogin(token);
     return payload.id || payload.userId || null;
   } catch {
     return null;
@@ -39,7 +52,7 @@ export async function getAuthPayload() {
   if (!token) return null;
 
   try {
-    return jwt.verify(token, process.env.JWT_SECRET);
+    return await verifyLogin(token);
   } catch {
     return null;
   }

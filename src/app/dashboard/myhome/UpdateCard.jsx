@@ -47,6 +47,27 @@ export function UpdateCard({ u, timeAgo, viewerIsPremium }) {
         if (profileHref) router.push(profileHref);
     };
 
+    const [sent, setSent] = useState(false);
+    const [sending, setSending] = useState(false);
+    const connect = async () => {
+        if (sent || sending || !u?.matri_id) return;
+        setSending(true);
+        try {
+            const r = await fetch('/api/interest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matri_id: u.matri_id }),
+            });
+            const j = await r.json().catch(() => ({}));
+            // "already sent" also counts as sent for this button
+            if (r.ok || /already/i.test(j.error || '')) setSent(true);
+        } catch {
+            /* network error — leave the button available to retry */
+        } finally {
+            setSending(false);
+        }
+    };
+
     return (
         <AccentCard
             containerStyle={{
@@ -112,12 +133,18 @@ export function UpdateCard({ u, timeAgo, viewerIsPremium }) {
                                         <i className="bi bi-people-fill me-1"></i> Friend
                                     </button>
                                 ) : (
-                                    <button type="button" className="btn btn-sm btn-primary py-1 px-3 rounded-pill fw-bold" style={{ fontSize: '0.75rem' }}>
-                                        Connect
+                                    <button
+                                        type="button"
+                                        className={`btn btn-sm py-1 px-3 rounded-pill fw-bold ${sent ? 'btn-outline-secondary' : 'btn-primary'}`}
+                                        style={{ fontSize: '0.75rem' }}
+                                        onClick={connect}
+                                        disabled={sent || sending}
+                                    >
+                                        {sending ? <span className="spinner-border spinner-border-sm" /> : sent ? <><i className="bi bi-check2 me-1" />Interest Sent</> : 'Connect'}
                                     </button>
                                 )}
 
-                                <button type="button" className="btn btn-sm btn-outline-secondary py-1 px-3 rounded-pill fw-bold bg-light border-0 text-dark" style={{ fontSize: '0.75rem' }}>
+                                <button type="button" onClick={goProfile} className="btn btn-sm btn-outline-secondary py-1 px-3 rounded-pill fw-bold bg-light border-0 text-dark" style={{ fontSize: '0.75rem' }}>
                                     View Profile
                                 </button>
                             </>

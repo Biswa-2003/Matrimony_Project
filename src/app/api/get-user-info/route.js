@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { query } from '@/lib/db';
 
+import { verifyLogin } from "@/lib/auth";
 // ---- helpers ----
 function readTokenFromRequest(request) {
   // Prefer cookie (your client fetches with credentials: 'same-origin')
@@ -61,7 +62,7 @@ export async function GET(request) {
 
     let decoded;
     try {
-      decoded = jwt.verify(token, secret);
+      decoded = await verifyLogin(token);
     } catch (e) {
       console.error('get-user-info: jwt.verify failed:', e?.message || e);
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });

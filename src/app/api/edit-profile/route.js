@@ -6,6 +6,9 @@ import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 import { v4 as uuidv4 } from "uuid";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { flagProfileText } from "@/lib/moderation";
+import { newMatriId } from "@/lib/members";
 const PROFILES = "matrimony_profiles";
 
 /* ----------------------------- tiny utilities ----------------------------- */
@@ -333,23 +336,24 @@ async function ensureProfile(userId) {
   if (s.rows.length) return s.rows[0].id;
 
   const newId = uuidv4();
+  const matriId = await newMatriId();
   try {
     const ins = await query(
-      `INSERT INTO ${PROFILES}(id, user_id) VALUES ($1, $2) RETURNING id`,
-      [newId, userId]
+      `INSERT INTO ${PROFILES}(id, user_id, matri_id) VALUES ($1, $2, $3) RETURNING id`,
+      [newId, userId, matriId]
     );
     return ins.rows[0].id;
   } catch {
     try {
       const ins2 = await query(
-        `INSERT INTO ${PROFILES}(id, user_id, first_name) VALUES ($1, $2, $3) RETURNING id`,
-        [newId, userId, ""]
+        `INSERT INTO ${PROFILES}(id, user_id, first_name, matri_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [newId, userId, "", matriId]
       );
       return ins2.rows[0].id;
     } catch {
       const ins3 = await query(
-        `INSERT INTO ${PROFILES}(id, user_id, first_name, matri_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [newId, userId, "", ""]
+        `INSERT INTO ${PROFILES}(id, user_id, first_name, matri_id, gender) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [newId, userId, "", matriId, "U"]
       );
       return ins3.rows[0].id;
     }
@@ -926,12 +930,12 @@ async function savePartnerPref(profileId, data) {
 
 /* ----------------------------------- API ---------------------------------- */
 export async function POST(req) {
+  { const limited = limitOr429(`edit-profile:${clientIp(req)}`, 30, 10 * 60 * 1000); if (limited) return limited; }
   try {
     const userId = await getUserIdFromCookie();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { section, data } = await req.json();
-    console.log("edit-profile payload:", section, data);
     if (!section) return NextResponse.json({ error: "Missing section" }, { status: 400 });
 
     await ensureColumn("updated_at", "TIMESTAMPTZ", "NOW()");
@@ -939,8 +943,14 @@ export async function POST(req) {
 
     try {
       switch (section) {
-        case "about_myself": await saveAbout(profileId, "about_myself", data); break;
-        case "about_family": await saveAbout(profileId, "about_family", data); break;
+        case "about_myself":
+          await saveAbout(profileId, "about_myself", data);
+          await flagProfileText(userId, { about_me: typeof data === "string" ? data : data?.about_me ?? data?.text ?? data?.value ?? "" });
+          break;
+        case "about_family":
+          await saveAbout(profileId, "about_family", data);
+          await flagProfileText(userId, { about_family: typeof data === "string" ? data : data?.about_family ?? data?.text ?? data?.value ?? "" });
+          break;
         case "basic": await saveBasic(profileId, data || {}); break;
         case "religion_info": {
           const saved = await saveReligionInfo(profileId, data || {});

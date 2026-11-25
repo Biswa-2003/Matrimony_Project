@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -95,6 +97,7 @@ async function search({ q = "", limit = 50, page = 1, oppositeGender = null }) {
 }
 
 export async function GET(req) {
+  { const limited = limitOr429(`name-search:${clientIp(req)}`, 60, 1 * 60 * 1000); if (limited) return limited; }
   try {
     // ✅ Get user's gender for filtering
     const token = readTokenFromRequest(req);
@@ -103,7 +106,7 @@ export async function GET(req) {
     if (token) {
       try {
         const secret = process.env.JWT_SECRET;
-        const decoded = jwt.verify(token, secret);
+        const decoded = await verifyLogin(token);
         const userId = decoded?.id ?? decoded?.userId;
 
         if (userId) {
@@ -135,6 +138,7 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  { const limited = limitOr429(`name-search:${clientIp(req)}`, 60, 1 * 60 * 1000); if (limited) return limited; }
   try {
     // ✅ Get user's gender for filtering
     const token = readTokenFromRequest(req);
@@ -143,7 +147,7 @@ export async function POST(req) {
     if (token) {
       try {
         const secret = process.env.JWT_SECRET;
-        const decoded = jwt.verify(token, secret);
+        const decoded = await verifyLogin(token);
         const userId = decoded?.id ?? decoded?.userId;
 
         if (userId) {

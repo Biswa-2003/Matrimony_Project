@@ -5,13 +5,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { useRouter } from 'next/navigation';
-import DailyRecommendationsCarousel from '../(dashboard-components)/DailyCarousel';
 import ImageCropper from '@/app/components/ImageCropper';
 import ProfilePhotoModal from '../(dashboard-components)/ProfilePhotoModal';
 import SuccessModal from '../(dashboard-components)/SuccessModal';
-import ProfileCompletionBar from '@/app/dashboard/(dashboard-components)/ProfileCompletionBar';
-import { useInterestStats } from '@/app/hooks/useInterestStats';
-import { UpdateCard, AccentCard } from './UpdateCard';
+import InboxPanel from '../(dashboard-components)/InboxPanel';
+import RecommendedStrip from '../(dashboard-components)/RecommendedStrip';
+import MatchSpotlight from '../(dashboard-components)/MatchSpotlight';
+import { ViewsChart, ProfileChecklist, PlanCard, SafetyTips, SentInterestsCard } from '../(dashboard-components)/DashboardWidgets';
+import { Reveal, TiltCard, AnimatedCounter } from '@/app/components/motion';
 import { resolvePhoto, timeAgo, safeJson } from './myhome.utils';
 
 export default function MyHome() {
@@ -31,23 +32,17 @@ export default function MyHome() {
   // active subscription (for label + details)
   const [activeSub, setActiveSub] = useState(null);
 
-  // ---------- latest updates list ----------
-  const [users, setUsers] = useState([]);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [usersError, setUsersError] = useState('');
-  // is the logged-in viewer premium?
-  const [viewerIsPremium, setViewerIsPremium] = useState(false);
+  // all dashboard widget data in one request
+  const [insights, setInsights] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/dashboard/insights', { credentials: 'include', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => alive && j && setInsights(j))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
-  // ---------- equal height refs ----------
-  // ---------- equal height refs ----------
-  const leftCardRef = useRef(null);
-  const rightCardRef = useRef(null);
-
-  // ---------- interest stats (right sidebar) ----------
-  const { stats, loading: statsLoading } = useInterestStats();
-  const goToReceived = () => router.push('/matrimoney/interests?filter=received');
-  const goToAccepted = () => router.push('/matrimoney/interests?filter=accepted');
-  const goToViewed = () => router.push('/matrimoney/matches/who-viewed-myprofile');
 
   /* safeJson moved to utils */
 
@@ -59,7 +54,7 @@ export default function MyHome() {
         cache: 'no-store',
       });
       if (res.status === 401) {
-        router.push('/login');
+        router.push('/matrimoney/login');
         return;
       }
       const data = await safeJson(res);
@@ -136,7 +131,7 @@ export default function MyHome() {
         if (profileRes.status === 'fulfilled') {
           const data = await safeJson(profileRes.value);
           if (profileRes.value.status === 401) {
-            router.push('/login');
+            router.push('/matrimoney/login');
             return;
           }
           if (profileRes.value.ok) {
@@ -183,59 +178,6 @@ export default function MyHome() {
     };
   }, [previewBlobUrl]);
 
-  // Load "Latest Updates"
-  useEffect(() => {
-    let alive = true;
-
-    async function loadUpdates(months) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      try {
-        const r = await fetch(`/api/recent-users?limit=8&months=${months}`, {
-          cache: 'no-store',
-          credentials: 'include',
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(data?.error || 'Failed to load');
-
-        // read viewerIsPremium from API if present
-        if (alive && typeof data.viewerIsPremium === 'boolean') {
-          setViewerIsPremium(data.viewerIsPremium);
-        }
-
-        return Array.isArray(data.users) ? data.users : [];
-      } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          console.warn('Recent users request timed out after 10 seconds');
-        }
-        throw error;
-      }
-    }
-
-    (async () => {
-      try {
-        setUsersLoading(true);
-        setUsersError('');
-        let rows = await loadUpdates(3);
-        if (!rows.length) rows = await loadUpdates(12);
-        if (alive) setUsers(rows);
-      } catch (e) {
-        if (alive) setUsersError(e.message || 'Something went wrong');
-      } finally {
-        if (alive) setUsersLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -276,7 +218,7 @@ export default function MyHome() {
 
       if (res.status === 401) {
         alert('Session expired. Please log in again.');
-        router.push('/login');
+        router.push('/matrimoney/login');
         return;
       }
 
@@ -314,246 +256,169 @@ export default function MyHome() {
 
 
   const profilePhotoPath = resolvePhoto(profile?.photo);
+  const firstName = profile?.first_name || (loading ? '' : 'Member');
+  const t = insights?.totals || {};
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const headline =
+    t.pending_received > 0
+      ? `${t.pending_received} ${t.pending_received === 1 ? 'family is' : 'families are'} waiting for your reply.`
+      : t.visitors_week > 0
+      ? `${t.visitors_week} ${t.visitors_week === 1 ? 'member' : 'members'} visited your profile this week.`
+      : 'Here’s what’s happening with your profile today.';
 
+  const nextStep = (insights?.checklist || []).find((c) => !c.done) || null;
 
-
-  // simple date formatter for ends_at
-  const formatDate = (iso) => {
-    if (!iso) return '--';
-    try {
-      return iso.slice(0, 10);
-    } catch {
-      return String(iso);
-    }
-  };
-
-  const membershipLabel = activeSub?.code || 'Free';
-  const hasActivePlan = !!activeSub;
+  const STATS = [
+    { key: 'pending_received', label: 'Interests Received', icon: 'bi-envelope-heart', href: '/matrimoney/interests?filter=received', tone: 'ruby' },
+    { key: 'connections', label: 'Connections', icon: 'bi-hearts', href: '/matrimoney/interests?filter=accepted', tone: 'gold' },
+    { key: 'visitors', label: 'Profile Visitors', icon: 'bi-eye', href: '/matrimoney/matches/who-viewed-myprofile', tone: 'maroon' },
+    { key: 'shortlisted_me', label: 'Shortlisted You', icon: 'bi-bookmark-star', href: '/matrimoney/shortlist', tone: 'gold' },
+  ];
 
   return (
     <>
       <div className="myhome-surface">
         <div className="container" style={{ paddingTop: '20px', paddingBottom: '40px' }}>
-
-          {/* Welcome Header */}
-          <div className="d-flex align-items-center justify-content-between mb-4 fade-in-up">
-            <div>
-              <h2 className="fw-bold text-maroon mb-1">
-                Welcome back, {profile?.first_name || 'Member'}! 👋
-              </h2>
-              <p className="text-muted mb-0">Here's what's happening regarding your profile today.</p>
+          {/* ================= Hero ================= */}
+          <section className="dash-hero fade-in-up">
+            <div className="mandala-deco light" style={{ width: 520, height: 520, right: -140, top: -220 }} aria-hidden="true" />
+            <div className="row g-4 align-items-center position-relative">
+              <div className="col-auto">
+                <div className="dash-avatar">
+                  <img
+                    src={profilePhotoPath}
+                    alt="Your profile"
+                    onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/images/avatar-male.svg'; }}
+                  />
+                  <button type="button" className="dash-avatar-btn" onClick={() => fileRef.current?.click()} disabled={uploading} title="Change photo" aria-label="Change photo">
+                    {uploading ? <span className="spinner-border spinner-border-sm" /> : <i className="bi bi-camera" />}
+                  </button>
+                  <input type="file" accept="image/*" ref={fileRef} onChange={handleFileChange} style={{ display: 'none' }} />
+                </div>
+              </div>
+              <div className="col">
+                <span className="eyebrow light mb-2">{greeting}</span>
+                <h1 className="text-white mb-1" style={{ fontSize: 'clamp(2rem, 3.6vw, 3rem)' }}>
+                  Welcome back, <span className="gold-text">{firstName}</span>
+                </h1>
+                <p className="mb-3" style={{ color: 'rgba(255,255,255,.75)' }}>{headline}</p>
+                <div className="d-flex flex-wrap gap-2">
+                  <span className="badge badge-gold px-3 py-2 rounded-pill"><i className="bi bi-person-badge me-1" />{profile?.matri_id || 'Generating ID…'}</span>
+                  <span className={`badge px-3 py-2 rounded-pill ${activeSub ? 'badge-gold' : 'bg-light text-dark'}`}>
+                    <i className="bi bi-gem me-1" />{activeSub ? `${activeSub.code} member` : 'Free member'}
+                  </span>
+                  {insights?.memberSince && (
+                    <span className="badge px-3 py-2 rounded-pill" style={{ background: 'rgba(255,255,255,.1)', border: '1px solid rgba(232,207,142,.4)' }}>
+                      <i className="bi bi-calendar-heart me-1" />Member since {new Date(insights.memberSince).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="col-12 col-lg-auto d-flex flex-column align-items-lg-end gap-2">
+                {nextStep ? (
+                  <Link href={nextStep.href} className="next-step">
+                    <span className="next-step-icon"><i className={`bi ${nextStep.icon}`} /></span>
+                    <span className="text-start">
+                      <small>Your next step</small>
+                      <span>{nextStep.label}</span>
+                    </span>
+                    <i className="bi bi-arrow-right ms-1" />
+                  </Link>
+                ) : (
+                  <Link href="/matrimoney/matches/newmatches" className="btn btn-gold px-4"><i className="bi bi-stars me-1" />New Matches</Link>
+                )}
+                <div className="d-flex gap-2">
+                  <Link href="/matrimoney/preference-search" className="btn btn-glass btn-sm px-3"><i className="bi bi-search-heart me-1" />Search</Link>
+                  <Link href="/matrimoney/interests?filter=received" className="btn btn-glass btn-sm px-3"><i className="bi bi-envelope-heart me-1" />Interests</Link>
+                  {profile?.matri_id && (
+                    <Link href={`/matrimoney/profile-details/${profile.matri_id}`} className="btn btn-glass btn-sm px-3" title="Preview my profile"><i className="bi bi-eye" /></Link>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="d-none d-md-block">
-              <span className="badge bg-white text-maroon shadow-sm border px-3 py-2 fw-normal rounded-pill">
-                Program ID: <span className="fw-bold">{profile?.matri_id || 'Waiting...'}</span>
-              </span>
+          </section>
+
+          {/* ================= Stat tiles ================= */}
+          <div className="row g-3 mb-4">
+            {STATS.map((s, i) => (
+              <div key={s.key} className="col-6 col-lg-3">
+                <Reveal delay={i * 0.06} className="h-100">
+                  <TiltCard className="h-100" max={8}>
+                    <Link href={s.href} className={`dash-stat tone-${s.tone}`}>
+                      <span className="dash-stat-icon"><i className={`bi ${s.icon}`} /></span>
+                      <span className="dash-stat-num">
+                        {insights ? <AnimatedCounter to={Number(t[s.key]) || 0} duration={1.2} /> : '–'}
+                      </span>
+                      <span className="dash-stat-label">{s.label}</span>
+                      <i className="bi bi-arrow-up-right dash-stat-go" />
+                    </Link>
+                  </TiltCard>
+                </Reveal>
+              </div>
+            ))}
+          </div>
+
+          {/* Row A — discover + profile strength */}
+          <div className="row g-4 mb-4 align-items-stretch">
+            <div className="col-xl-8">
+              <MatchSpotlight />
+            </div>
+            <div className="col-xl-4">
+              <ProfileChecklist items={insights?.checklist || []} strength={insights?.strength || 0} />
             </div>
           </div>
 
-          <div className="row align-items-stretch">
-            {/* Left Sidebar: Profile Card */}
-            <div className="col-lg-3 col-md-3 mb-3">
-              <AccentCard ref={leftCardRef}>
-                <div className="text-center">
-                  <div
-                    className="d-flex align-items-center justify-content-center bg-light mx-auto mb-3 position-relative"
-                    style={{
-                      width: 140,
-                      height: 160,
-                      borderRadius: 16,
-                      overflow: 'hidden',
-                      border: '1px solid rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    <Image
-                      src={profilePhotoPath}
-                      alt="User"
-                      className="img-fluid zoomable-img"
-                      width={140}
-                      height={160}
-                      unoptimized
-                      onError={(e) => { e.currentTarget.src = '/uploads/default.jpg'; }}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </div>
+          {/* Row B — recommendations strip */}
+          <div className="mb-4">
+            <RecommendedStrip />
+          </div>
 
-                  <h5 className="card-title mb-2 text-maroon fw-bold">
-                    {profile?.first_name || (loading ? 'Loading…' : 'Your Name')}
-                  </h5>
-
-                  <div className="d-flex justify-content-center gap-2 mb-4">
-                    <span className="badge bg-light text-secondary border fw-normal">{profile?.matri_id || 'DUXXXX'}</span>
-                    <span className={`badge border fw-bold ${hasActivePlan ? 'bg-success-subtle text-success border-success' : 'bg-secondary-subtle text-secondary border-secondary'}`}>
-                      {membershipLabel}
-                    </span>
-                  </div>
-
-                  <button
-                    className="btn btn-primary btn-sm w-100 mb-3 shadow-sm text-uppercase fw-bold letter-spacing-1"
-                    onClick={() => router.push('/matrimoney/package')}
-                    style={{ fontSize: '0.8rem', padding: '10px' }}
-                  >
-                    {hasActivePlan ? 'Manage Plan' : 'Upgrade Premium'}
-                  </button>
-
-                  <div className="text-start mt-4">
-                    <p className="small text-uppercase text-muted fw-bold mb-3 ls-1">Quick Links</p>
-                    <ul className="list-unstyled d-flex flex-column gap-2 mb-0">
-                      <li>
-                        <button className="btn btn-link p-0 text-decoration-none text-dark fw-semibold d-flex align-items-center gap-2 hover-text-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                          <i className="bi bi-camera text-secondary"></i> {uploading ? 'Uploading...' : 'Change Photo'}
-                        </button>
-                        <input type="file" accept="image/*" ref={fileRef} onChange={handleFileChange} style={{ display: 'none' }} />
-                      </li>
-                      <li>
-                        <Link href="/dashboard/profile-edit" className="text-decoration-none text-dark fw-semibold d-flex align-items-center gap-2 hover-text-primary">
-                          <i className="bi bi-pencil text-secondary"></i> Edit Profile
-                        </Link>
-                      </li>
-                      <li>
-                        <Link href="/matrimoney/shortlist" className="text-decoration-none text-dark fw-semibold d-flex align-items-center gap-2 hover-text-primary">
-                          <i className="bi bi-heart text-secondary"></i> My Shortlist
-                        </Link>
-                      </li>
-                      <li>
-                        <Link href="/matrimoney/preference-search" className="text-decoration-none text-dark fw-semibold d-flex align-items-center gap-2 hover-text-primary">
-                          <i className="bi bi-sliders text-secondary"></i> Partner Preferences
-                        </Link>
-                      </li>
-                    </ul>
-                  </div>
-
-                  {hasActivePlan && (
-                    <div className="mt-4 p-3 bg-light rounded-3 border">
-                      <small className="d-block text-muted text-uppercase fw-bold mb-1" style={{ fontSize: '0.65rem' }}>Plan Expires On</small>
-                      <span className="fw-bold text-dark">{formatDate(activeSub.ends_at)}</span>
-                      <div className="mt-2 d-flex justify-content-between align-items-center">
-                        <span className="small text-muted">Contacts Left</span>
-                        <span className="badge bg-white text-dark border">{activeSub.remaining_contacts}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* New: Fill the gap with Support & Saftey widgets */}
-                  <hr className="my-4 text-secondary opacity-25" />
-
-                  <div className="text-start">
-                    <p className="small text-uppercase text-muted fw-bold mb-3 ls-1">Need Help?</p>
-                    <div className="p-3 bg-pink-subtle rounded-3 border-pink">
-                      <p className="small text-dark mb-2">Our support team is available 24/7 to assist you.</p>
-                      <Link href="/matrimoney/contactus" className="btn btn-sm btn-outline-danger w-100 fw-bold bg-white text-maroon border-maroon">Contact Support</Link>
-                    </div>
-                  </div>
-
-                  <div className="text-start mt-4">
-                    <p className="small text-uppercase text-muted fw-bold mb-3 ls-1">Safety Tip</p>
-                    <div className="d-flex gap-3 align-items-start">
-                      <i className="bi bi-shield-check text-success fs-4"></i>
-                      <p className="small text-muted mb-0">Never share your OTP, bank details, or passwords with anyone.</p>
-                    </div>
-                  </div>
-                </div>
-              </AccentCard>
+          {/* Row C — inbox + membership & visitors */}
+          <div className="row g-4 mb-4 align-items-stretch">
+            <div className="col-xl-8">
+              <InboxPanel counts={t} visitors={insights?.recentVisitors || []} />
             </div>
+            <div className="col-xl-4 d-flex flex-column gap-4">
+              <PlanCard plan={insights?.plan || null} />
+              <ViewsChart data={insights?.views7d || []} weekTotal={t.visitors_week || 0} visitors={insights?.recentVisitors || []} />
+            </div>
+          </div>
 
-            {/* Middle Content: Updates Feed */}
-            <div className="col-lg-6 col-md-8 mb-4">
-              {/* Feed Header */}
-              <div className="d-flex align-items-center justify-content-between mb-3 px-2">
-                <h5 className="fw-bold text-dark mb-0">Latest Matches & Updates</h5>
-                <span className="badge bg-white text-secondary border shadow-sm rounded-pill px-3">Real-time</span>
-              </div>
-
-              {/* Updates List - Chunk Style */}
-              <div className="d-flex flex-column gap-3">
-                {usersLoading && (
-                  <div className="text-center py-5">
-                    <div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div>
-                  </div>
-                )}
-
-                {!usersLoading && usersError && (
-                  <div className="alert alert-danger">{usersError}</div>
-                )}
-
-                {!usersLoading && !usersError && users.length === 0 && (
-                  <div className="text-center py-5 bg-white rounded-4 shadow-sm p-5 border-dashed">
-                    <Image src="/leaf_left.png" width={60} height={60} alt="" className="opacity-25 mb-3" />
-                    <p className="text-muted">No updates yet. Check back soon!</p>
-                  </div>
-                )}
-
-                {!usersLoading && !usersError && users.length > 0 && users.map((u, i) => (
-                  <div key={u?.matri_id ?? i} className="fade-in-up" style={{ animationDelay: `${i * 0.1}s` }}>
-                    <UpdateCard u={u} timeAgo={timeAgo} viewerIsPremium={viewerIsPremium} />
-                  </div>
-                ))}
+          {/* Row D — journey, quick actions, safety */}
+          <div className="row g-4 align-items-stretch">
+            <div className="col-lg-4">
+              <SentInterestsCard pending={t.pending_sent || 0} connections={t.connections || 0} shortlist={t.my_shortlist || 0} />
+            </div>
+            <div className="col-lg-4">
+              <div className="luxe-card p-4 h-100">
+                <span className="eyebrow" style={{ fontSize: '0.6rem' }}>Shortcuts</span>
+                <h5 className="mb-3 mt-1">Manage your profile</h5>
+                <div className="row g-2">
+                  {[
+                    ['/dashboard/profile-edit', 'bi-pencil-square', 'Edit Profile'],
+                    ['/dashboard/upload-photo', 'bi-images', 'Photos'],
+                    ['/dashboard/profile-edit#sec-partnerPref', 'bi-hearts', 'Preferences'],
+                    ['/dashboard/profile-setting', 'bi-shield-lock', 'Privacy'],
+                    ['/matrimoney/shortlist', 'bi-bookmark-heart', 'Shortlist'],
+                    ['/matrimoney/contactus', 'bi-headset', 'Support'],
+                  ].map(([href, icon, label]) => (
+                    <div key={href} className="col-4">
+                      <Link href={href} className="quick-tile py-3"><i className={`bi ${icon}`} /><span>{label}</span></Link>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-
-            {/* Right Sidebar: Stats & Carousel */}
-            <div className="col-lg-3 col-md-12 mb-4">
-              <AccentCard ref={rightCardRef}>
-                <h6 className="text-uppercase text-secondary fw-bold small mb-3 ls-1">Activity Overview</h6>
-
-                <div className="d-flex flex-column gap-3 mb-4">
-                  {/* Received */}
-                  <div className="stat-card p-3 rounded-3 bg-white border shadow-sm pointer-hover d-flex align-items-center justify-content-between" onClick={goToReceived}>
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="icon-box bg-danger-subtle text-danger rounded-circle d-flex align-items-center justify-content-center" style={{ width: 40, height: 40 }}>
-                        <i className="bi bi-arrow-down-left-circle-fill fs-5"></i>
-                      </div>
-                      <span className="fw-semibold text-dark">Received</span>
-                    </div>
-                    <span className="h5 fw-bold text-dark mb-0">{statsLoading ? '-' : stats.received}</span>
-                  </div>
-
-                  {/* Accepted */}
-                  <div className="stat-card p-3 rounded-3 bg-white border shadow-sm pointer-hover d-flex align-items-center justify-content-between" onClick={goToAccepted}>
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="icon-box bg-success-subtle text-success rounded-circle d-flex align-items-center justify-content-center" style={{ width: 40, height: 40 }}>
-                        <i className="bi bi-check-circle-fill fs-5"></i>
-                      </div>
-                      <span className="fw-semibold text-dark">Accepted</span>
-                    </div>
-                    <span className="h5 fw-bold text-dark mb-0">{statsLoading ? '-' : stats.accepted}</span>
-                  </div>
-
-                  {/* Viewed */}
-                  <div className="stat-card p-3 rounded-3 bg-white border shadow-sm pointer-hover d-flex align-items-center justify-content-between" onClick={goToViewed}>
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="icon-box bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center" style={{ width: 40, height: 40 }}>
-                        <i className="bi bi-eye-fill fs-5"></i>
-                      </div>
-                      <span className="fw-semibold text-dark">Profile Views</span>
-                    </div>
-                    <span className="h5 fw-bold text-dark mb-0">{statsLoading ? '-' : stats.viewed}</span>
-                  </div>
-                </div>
-
-                <hr className="bg-secondary opacity-10 my-4" />
-
-                <h6 className="text-uppercase text-secondary fw-bold small mb-3 ls-1">Recommended for You</h6>
-                <div className="recommendation-container" style={{ minHeight: 200 }}>
-                  <DailyRecommendationsCarousel />
-                </div>
-
-                <div className="mt-4">
-                  <ProfileCompletionBar profile={profile} loading={loading} />
-                </div>
-              </AccentCard>
+            <div className="col-lg-4">
+              <SafetyTips />
             </div>
           </div>
         </div>
       </div>
 
       {showCropper && (
-        <ImageCropper
-          image={imageSrc}
-          show={showCropper}
-          onClose={() => setShowCropper(false)}
-          onCropDone={handleCropDone}
-        />
+        <ImageCropper image={imageSrc} show={showCropper} onClose={() => setShowCropper(false)} onCropDone={handleCropDone} />
       )}
 
       <ProfilePhotoModal
@@ -561,15 +426,7 @@ export default function MyHome() {
         onHide={() => setShowPhotoModal(false)}
         reload={() => { fetchProfile(); fetchActiveSubscription(); }}
       />
-      <SuccessModal
-        show={!!successMsg}
-        message={successMsg}
-        onClose={() => setSuccessMsg('')}
-      />
-
-
+      <SuccessModal show={!!successMsg} message={successMsg} onClose={() => setSuccessMsg('')} />
     </>
   );
 }
-
-

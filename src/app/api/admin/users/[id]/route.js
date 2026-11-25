@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAdmin } from "@/lib/admin-audit";
 import { query } from "@/lib/db";
 import { isAdmin } from "@/lib/auth";
 
@@ -112,6 +113,7 @@ export async function PATCH(request, context) {
       );
     }
 
+    await logAdmin("member.update", id, Object.fromEntries(Object.entries(body).filter(([k]) => ["is_verified", "is_active", "role"].includes(k))));
     return NextResponse.json({
       success: true,
       message: "User updated successfully",
@@ -130,6 +132,11 @@ export async function DELETE(request, context) {
     }
 
     const { id } = await context.params;
+    const who = await query(
+      `SELECT u.email, mp.matri_id FROM users u LEFT JOIN matrimony_profiles mp ON mp.user_id = u.id WHERE u.id = $1`, [id]
+    ).catch(() => ({ rows: [] }));
+    // log before deleting so the record keeps who it was
+    await logAdmin("member.delete", null, { user_id: id, matri_id: who.rows[0]?.matri_id || null });
 
     // Delete cascading references
     await query("DELETE FROM subscriptions WHERE user_id = $1", [id]).catch(() => {});

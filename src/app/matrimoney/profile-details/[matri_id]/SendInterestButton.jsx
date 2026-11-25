@@ -82,7 +82,7 @@ export default function SendInterestButton({ matriId, receiverId }) {
   const renderModal = () => (
     <Modal show={showModal} onHide={() => setShowModal(false)} centered>
       <Modal.Header closeButton className="border-0">
-        <Modal.Title className="fw-bold" style={{ color: '#800020' }}>
+        <Modal.Title className="fw-bold" style={{ color: '#5a0f22' }}>
           {modalType === 'error' ? 'Notice' : 'Success'}
         </Modal.Title>
       </Modal.Header>
@@ -142,8 +142,8 @@ export default function SendInterestButton({ matriId, receiverId }) {
         onClick={handleClick}
         disabled={loading}
         style={{
-          background: 'var(--brand-primary, #E33183)',
-          borderColor: 'var(--brand-primary, #E33183)'
+          background: 'var(--brand-primary, #a3123a)',
+          borderColor: 'var(--brand-primary, #a3123a)'
         }}
       >
         {loading ? (

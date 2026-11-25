@@ -7,22 +7,8 @@ export default function DailyRecommendationsCarousel({ recommendations = [], cur
   const [dbRecs, setDbRecs] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Fallback data (only used if API has no data / fails)
-  const defaultRecommendations = [
-    { id: 1, name: 'KABITA NAYAK', img: '/image/1.jpeg', photosCount: 2 },
-    { id: 2, name: 'ADITI RANI SAHOO', img: '/image/2.jpeg', photosCount: 0 },
-    { id: 3, name: 'SMRUTIPRAVA TRIPATHY', img: '/image/3.jpeg', photosCount: 1 },
-  ];
-
-  // 1) priority: prop
-  // 2) then DB data
-  // 3) fallback static
-  const recs =
-    recommendations.length > 0
-      ? recommendations
-      : dbRecs.length > 0
-        ? dbRecs
-        : defaultRecommendations;
+  // 1) priority: prop  2) then DB data. No invented placeholder people.
+  const recs = recommendations.length > 0 ? recommendations : dbRecs;
 
   // ✅ Hydration-safe unique id
   const reactId = useId();
@@ -204,6 +190,17 @@ export default function DailyRecommendationsCarousel({ recommendations = [], cur
       alert('Something went wrong while sending interest');
     }
   };
+
+  if (!loading && recs.length === 0) {
+    return (
+      <div className="text-center p-4 rounded-4" style={{ background: 'var(--royal)', color: '#fff', minHeight: 260 }}>
+        <img src="/images/ritual-rings.svg" alt="" width={72} height={72} className="mb-2 mt-3" />
+        <div className="fw-semibold" style={{ color: 'var(--gold-light)' }}>Recommendations are on their way</div>
+        <small className="d-block text-white-50 mt-1">Complete your partner preferences to receive daily matches.</small>
+        <a href="/dashboard/profile-edit" className="btn btn-gold btn-sm mt-3 px-3">Update Preferences</a>
+      </div>
+    );
+  }
 
   return (
     <div className="position-relative w-100">

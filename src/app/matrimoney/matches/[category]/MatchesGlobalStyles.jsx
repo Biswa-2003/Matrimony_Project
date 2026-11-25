@@ -4,11 +4,11 @@ export default function MatchesGlobalStyles() {
     return (
         <style jsx global>{`
         .page-surface {
-            background-color: #f4f7fa;
+            background-color: var(--ivory);
             min-height: 100vh;
         }
         .header-section {
-            background: linear-gradient(135deg, var(--brand-maroon) 0%, #a01040 100%);
+            background: url('/images/paisley-light.svg') repeat, radial-gradient(120% 120% at 50% 0%, #7a1530 0%, #3b0a16 60%, #1c030b 100%);
             border-bottom-left-radius: 40px;
             border-bottom-right-radius: 40px;
         }

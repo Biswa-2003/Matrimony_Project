@@ -1,21 +1,36 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import "bootstrap/dist/css/bootstrap.min.css";
+import React, { useState, useEffect, useMemo } from "react";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import MatrimonyMidPage from "../midpage/page";
 import { useRouter } from "next/navigation";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Link from "next/link";
+import { getSession } from "@/lib/session-client";
+import { useSiteContent, isCustomImage } from "@/lib/site-content-client";
+import Scene3D from "@/app/components/three/Scene3D";
+import { Reveal, TiltCard, AnimatedCounter } from "@/app/components/motion";
+import { PASSWORD_RULES } from "@/app/components/PasswordChecklist";
+
+
+import { useI18n } from "@/lib/i18n/LanguageProvider";
+const yearsAgo = (n) => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - n);
+  return d.toISOString().slice(0, 10);
+};
 
 const Home1 = () => {
+  const { t } = useI18n();
   const router = useRouter();
+  const { media } = useSiteContent();
   const [castes, setCastes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState("register"); // "register" | "search"
+  const [activeTab, setActiveTab] = useState("register");
   const [recentProfiles, setRecentProfiles] = useState([]);
+  const [otpState, setOtpState] = useState({ status: "idle", message: "", cooldown: 0 });
 
   // Quick Search state
   const [searchGender, setSearchGender] = useState("Female");
@@ -38,63 +53,54 @@ const Home1 = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // 1. Fetch Castes
     fetch("/api/lookups/castes")
       .then((res) => res.json())
-      .then((data) => setCastes(data))
-      .catch((err) => console.error("Failed to fetch castes", err));
+      .then((data) => setCastes(Array.isArray(data) ? data : []))
+      .catch(() => setCastes([]));
 
-    // 2. Check Login Status
-    fetch("/api/me")
-      .then((res) => {
-        if (res.ok) return res.json();
-        throw new Error("Not logged in");
-      })
-      .then((data) => {
-        if (data.user || data.id) setIsLoggedIn(true);
-      })
-      .catch(() => setIsLoggedIn(false));
+    getSession().then((s) => setIsLoggedIn(Boolean(s)));
 
-    // 3. Fetch Featured Profiles
     fetch("/api/recent-users?limit=4&months=12")
       .then((res) => res.json())
       .then((data) => {
-        if (data.users && data.users.length > 0) {
-          setRecentProfiles(data.users);
-        }
+        if (Array.isArray(data.users) && data.users.length > 0) setRecentProfiles(data.users);
       })
-      .catch((err) => console.error("Failed to load featured profiles", err));
+      .catch(() => {});
   }, []);
+
+  // OTP resend cooldown
+  useEffect(() => {
+    if (otpState.cooldown <= 0) return;
+    const t = setTimeout(() => setOtpState((s) => ({ ...s, cooldown: s.cooldown - 1 })), 1000);
+    return () => clearTimeout(t);
+  }, [otpState.cooldown]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
+
+  const passwordChecks = useMemo(
+    () => PASSWORD_RULES.map((r) => ({ ...r, ok: r.test(formData.password) })),
+    [formData.password]
+  );
+  const passwordOk = passwordChecks.every((c) => c.ok);
+  const minAge = formData.gender === "Male" ? 21 : 18;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    if (!formData.agree) {
-      setError("Please agree to the terms and conditions.");
-      return;
-    }
+    if (!formData.agree) return setError("Please agree to the terms and privacy policy.");
+    if (!passwordOk) return setError("Please choose a stronger password that meets all the rules below.");
     setLoading(true);
-
     try {
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
-
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Registration failed");
-      }
-
+      if (!res.ok) throw new Error(data.error || "Registration failed");
       router.push("/matrimoney/login?registered=true");
     } catch (err) {
       setError(err.message);
@@ -104,470 +110,349 @@ const Home1 = () => {
   };
 
   const handleSendOtp = async () => {
-    if (!formData.email) {
-      alert("Please enter your email first.");
+    if (!/^\S+@\S+\.\S+$/.test(formData.email)) {
+      setOtpState({ status: "error", message: "Enter a valid email address first.", cooldown: 0 });
       return;
     }
-
+    setOtpState({ status: "sending", message: "", cooldown: 0 });
     try {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: formData.email }),
+        body: JSON.stringify({ email: formData.email, phone: formData.mobile_no }),
       });
       const data = await res.json();
-      if (res.ok) {
-        alert(data.message || "OTP sent to your email!");
+      if (!res.ok) throw new Error(data.error || "Failed to send OTP.");
+      if (data.dev_otp) setFormData((p) => ({ ...p, otp: data.dev_otp })); // development convenience
+      if (data.delivered === false) {
+        setOtpState({ status: "help", message: `${data.message} ${data.help || ""}`.trim(), cooldown: 45 });
       } else {
-        alert(data.error || "Failed to send OTP.");
+        setOtpState({ status: "sent", message: `Code sent to ${formData.email}`, cooldown: 45 });
       }
     } catch (e) {
-      console.error(e);
-      alert("Something went wrong sending OTP.");
+      setOtpState({ status: "error", message: e.message, cooldown: 0 });
     }
   };
 
   const handleQuickSearch = (e) => {
     e.preventDefault();
     const params = new URLSearchParams();
-    if (searchGender) params.set("gender", searchGender);
-    if (searchAgeFrom) params.set("ageFrom", searchAgeFrom);
-    if (searchAgeTo) params.set("ageTo", searchAgeTo);
-    if (searchCaste) params.set("caste", searchCaste);
-    router.push(`/matrimoney/results?${params.toString()}`);
+    if (searchAgeFrom) params.set("ageMin", searchAgeFrom);
+    if (searchAgeTo) params.set("ageMax", searchAgeTo);
+    if (searchCaste) params.set("casteId", searchCaste);
+    router.push(`/matrimoney/preference-search?${params.toString()}`);
   };
 
   return (
     <>
-      {/* 3D Animated Hero Section */}
-      <div
-        className="position-relative text-white py-5 overflow-hidden"
-        style={{
-          background: "linear-gradient(135deg, #300314 0%, #580C29 35%, #881337 70%, #9F1239 100%)",
-          minHeight: "600px",
-        }}
-      >
-        {/* Floating Heart Particles in 3D Space */}
-        <span className="heart-float" style={{ left: "10%", animationDelay: "0s" }}>💖</span>
-        <span className="heart-float" style={{ left: "25%", animationDelay: "2.5s" }}>💍</span>
-        <span className="heart-float" style={{ left: "45%", animationDelay: "5s" }}>✨</span>
-        <span className="heart-float" style={{ left: "70%", animationDelay: "1.5s" }}>💖</span>
-        <span className="heart-float" style={{ left: "88%", animationDelay: "4s" }}>🌹</span>
+      {/* ================= HERO ================= */}
+      <section className="hero-3d position-relative overflow-hidden" style={{ paddingBottom: 110 }}>
+        <div className="mandala-deco light hero-mandala" aria-hidden="true" />
+        <div className="hero-vignette" aria-hidden="true" />
+        <Scene3D variant="hero" className="hero-canvas" />
 
-        {/* Ambient Glows */}
-        <div
-          style={{
-            position: "absolute",
-            top: "-15%",
-            right: "0%",
-            width: "550px",
-            height: "550px",
-            borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(225, 29, 72, 0.4) 0%, rgba(225, 29, 72, 0) 70%)",
-            filter: "blur(70px)",
-            pointerEvents: "none",
-          }}
-        ></div>
-
-        <div className="container position-relative py-4" style={{ zIndex: 2 }}>
-          <div className="row align-items-center g-5">
-            {/* Left Column: Hero Text */}
+        <div className="container position-relative py-5" style={{ zIndex: 2 }}>
+          <div className="row align-items-center g-5" style={{ minHeight: 600 }}>
             <div className="col-lg-6">
-              <div className="d-inline-flex align-items-center gap-2 bg-white bg-opacity-15 border border-white border-opacity-25 rounded-pill px-3 py-1 mb-3 shadow-sm">
-                <i className="bi bi-stars text-warning fs-6"></i>
-                <span className="small fw-semibold text-white">#1 Trusted Indian Matrimony Network</span>
-              </div>
+              <Reveal delay={0.05}>
+                <span className="eyebrow light mb-4">{t("home.eyebrow")}</span>
+              </Reveal>
 
-              <h1 className="display-4 fw-bold font-heading text-white mb-3" style={{ lineHeight: 1.15 }}>
-                Your Sacred Journey to <br />
-                <span style={{ color: "#FF85A2", textShadow: "0 0 25px rgba(255,133,162,0.5)" }}>
-                  Lifelong Love
-                </span>{" "}
-                Begins Here.
-              </h1>
+              <Reveal delay={0.15}>
+                <h1 className="hero-title mb-4">
+                  {t("home.title1")} <br />
+                  {t("home.title2")} <em className="gold-text shine">{t("home.title3")}</em>
+                </h1>
+              </Reveal>
 
-              <p className="lead text-white-50 mb-4" style={{ fontSize: "1.15rem", lineHeight: 1.6 }}>
-                Connect with verified, cultured, and compatible Indian brides and grooms. Designed with strict privacy,
-                smart AI matching, and complete family confidence.
-              </p>
+              <Reveal delay={0.25}>
+                <p className="hero-lead mb-4">
+                  {t("home.lead")}
+                </p>
+              </Reveal>
 
-              {/* Trust Badges */}
-              <div className="d-flex flex-wrap gap-3 mb-4">
-                <div className="d-flex align-items-center gap-2 bg-white bg-opacity-10 px-3 py-2 rounded-pill border border-white border-opacity-15 shadow-sm">
-                  <i className="bi bi-patch-check-fill text-warning fs-5"></i>
-                  <span className="small fw-semibold text-white">100% Verified Profiles</span>
+              <Reveal delay={0.35}>
+                <div className="d-flex flex-wrap gap-3 mb-5">
+                  <a href="#join" className="btn btn-gold btn-lg">
+                    {t("home.begin")} <i className="bi bi-arrow-right ms-2" />
+                  </a>
+                  <Link href={isLoggedIn ? "/dashboard/myhome" : "/matrimoney/login"} className="btn btn-glass btn-lg">
+                    {isLoggedIn ? t("home.dashboard") : t("home.memberLogin")}
+                  </Link>
                 </div>
-                <div className="d-flex align-items-center gap-2 bg-white bg-opacity-10 px-3 py-2 rounded-pill border border-white border-opacity-15 shadow-sm">
-                  <i className="bi bi-shield-lock-fill text-info fs-5"></i>
-                  <span className="small fw-semibold text-white">Strict Privacy Controls</span>
+              </Reveal>
+
+              <Reveal delay={0.45}>
+                <div className="d-flex align-items-center gap-4 flex-wrap">
+                  <div>
+                    <div className="hero-stat-num gold-text">50K+</div>
+                    <div className="hero-stat-label">Verified Profiles</div>
+                  </div>
+                  <span className="hero-divider-v" />
+                  <div>
+                    <div className="hero-stat-num gold-text">12.5K</div>
+                    <div className="hero-stat-label">Happy Marriages</div>
+                  </div>
+                  <span className="hero-divider-v" />
+                  <div>
+                    <div className="hero-stat-num gold-text">24/7</div>
+                    <div className="hero-stat-label">Personal Support</div>
+                  </div>
                 </div>
-                <div className="d-flex align-items-center gap-2 bg-white bg-opacity-10 px-3 py-2 rounded-pill border border-white border-opacity-15 shadow-sm">
-                  <i className="bi bi-chat-heart-fill text-danger fs-5"></i>
-                  <span className="small fw-semibold text-white">Direct Family Connect</span>
-                </div>
-              </div>
+              </Reveal>
             </div>
 
-            {/* Right Column: 3D Animated Hero Couple Artwork */}
-            <div className="col-lg-6 text-center">
-              <div className="hero-3d-container position-relative d-inline-block p-4">
-                {/* 3D Ambient Rotating Rings */}
-                <div className="hero-3d-ring hero-ring-1"></div>
-                <div className="hero-3d-ring hero-ring-2"></div>
-
-                {/* Floating 3D Badge 1: Top Left */}
-                <div className="floating-3d-badge badge-top-left text-dark">
-                  <div
-                    className="rounded-circle bg-success text-white p-1 d-flex align-items-center justify-content-center"
-                    style={{ width: 32, height: 32 }}
-                  >
-                    <i className="bi bi-shield-fill-check fs-6"></i>
+            <div className="col-lg-6 position-relative d-none d-lg-block">
+              <Reveal delay={0.2} y={60}>
+                {isCustomImage(media.home_hero) ? (
+                  <div className="hero-photo-arch animate-float">
+                    <img src={media.home_hero} alt="Happy couple" />
                   </div>
-                  <div className="text-start">
-                    <div className="fw-bold" style={{ fontSize: "0.82rem", lineHeight: 1.1 }}>
-                      100% Verified
-                    </div>
-                    <small className="text-muted" style={{ fontSize: "0.68rem" }}>
-                      Photos & Mobile
-                    </small>
+                ) : (
+                  <div className="hero-art animate-float">
+                    <img src={media.home_hero} alt="Bride and groom beneath a decorated wedding mandap" />
                   </div>
+                )}
+              </Reveal>
+              <div className="floating-3d-badge" style={{ top: "14%", left: "0%" }}>
+                <span className="badge-icon"><i className="bi bi-shield-fill-check" /></span>
+                <div>
+                  <div className="fw-semibold small lh-1">100% Verified</div>
+                  <small className="text-muted" style={{ fontSize: "0.68rem" }}>Photo &amp; mobile checked</small>
                 </div>
-
-                {/* Floating 3D Badge 2: Bottom Right */}
-                <div className="floating-3d-badge badge-bottom-right text-dark">
-                  <div
-                    className="rounded-circle bg-danger text-white p-1 d-flex align-items-center justify-content-center"
-                    style={{ width: 32, height: 32 }}
-                  >
-                    <i className="bi bi-heart-fill fs-6"></i>
-                  </div>
-                  <div className="text-start">
-                    <div className="fw-bold" style={{ fontSize: "0.82rem", lineHeight: 1.1 }}>
-                      98% Match
-                    </div>
-                    <small className="text-muted" style={{ fontSize: "0.68rem" }}>
-                      AI Compatibility
-                    </small>
-                  </div>
+              </div>
+              <div className="floating-3d-badge" style={{ bottom: "16%", right: "-2%", animationDelay: "1.5s" }}>
+                <span className="badge-icon"><i className="bi bi-stars" /></span>
+                <div>
+                  <div className="fw-semibold small lh-1">AI Matchmaking</div>
+                  <small className="text-muted" style={{ fontSize: "0.68rem" }}>Smart partner search</small>
                 </div>
-
-                {/* Main 3D Framed Couple Image with Fallback */}
-                <div
-                  className="rounded-circle overflow-hidden shadow-lg position-relative"
-                  style={{
-                    width: "350px",
-                    height: "350px",
-                    maxWidth: "100%",
-                    margin: "0 auto",
-                    border: "6px solid rgba(255, 255, 255, 0.45)",
-                    boxShadow: "0 25px 60px rgba(0,0,0,0.45), 0 0 45px rgba(225, 29, 72, 0.4)",
-                    zIndex: 2,
-                  }}
-                >
-                  <img
-                    src="/Image_02/matromon.jpg"
-                    alt="Happy Matrimony Couple"
-                    className="w-100 h-100 object-fit-cover"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.src = "/Image_02/Banner_1.jpg";
-                    }}
-                  />
+              </div>
+              <div className="floating-3d-badge" style={{ top: "46%", left: "-6%", animationDelay: "0.8s" }}>
+                <span className="badge-icon"><i className="bi bi-eye-slash-fill" /></span>
+                <div>
+                  <div className="fw-semibold small lh-1">Private by Design</div>
+                  <small className="text-muted" style={{ fontSize: "0.68rem" }}>You control visibility</small>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Floating 3D Interactive Hub (Search / Register) */}
-      <div className="container position-relative perspective-1000" style={{ marginTop: "-55px", zIndex: 10 }}>
+        <a href="#join" className="scroll-cue" aria-label="Scroll to registration">
+          <span />
+        </a>
+      </section>
+
+      {/* ================= REGISTER / SEARCH HUB ================= */}
+      <div id="join" className="container position-relative" style={{ marginTop: -80, zIndex: 10, scrollMarginTop: 110 }}>
         <div className="row justify-content-center">
-          <div className="col-lg-10 col-xl-9">
-            <div className="card glass-card card-3d shimmer-card border-0 shadow-lg overflow-hidden">
-              {/* Tab Selector */}
-              <div className="card-header bg-white border-bottom p-0">
-                <div className="d-flex">
-                  <button
-                    onClick={() => setActiveTab("register")}
-                    className={`btn flex-grow-1 py-3 fw-bold rounded-0 border-0 transition-all ${
-                      activeTab === "register"
-                        ? "text-danger border-bottom border-danger border-3 bg-white"
-                        : "text-muted bg-light"
-                    }`}
-                    style={activeTab === "register" ? { borderBottom: "3px solid #E33183 !important" } : {}}
-                  >
-                    <i className="bi bi-person-heart me-2"></i> Free Member Registration
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("search")}
-                    className={`btn flex-grow-1 py-3 fw-bold rounded-0 border-0 transition-all ${
-                      activeTab === "search"
-                        ? "text-danger border-bottom border-danger border-3 bg-white"
-                        : "text-muted bg-light"
-                    }`}
-                    style={activeTab === "search" ? { borderBottom: "3px solid #E33183 !important" } : {}}
-                  >
-                    <i className="bi bi-search-heart me-2"></i> Quick Match Finder
-                  </button>
-                </div>
+          <Reveal className="col-lg-11 col-xl-10" y={60}>
+            <div className="card glass-card hub-card border-0 overflow-hidden">
+              <div className="hub-tabs" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={activeTab === "register"}
+                  onClick={() => setActiveTab("register")}
+                  className={`hub-tab ${activeTab === "register" ? "active" : ""}`}
+                >
+                  <i className="bi bi-person-heart me-2" /> Create Free Profile
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={activeTab === "search"}
+                  onClick={() => setActiveTab("search")}
+                  className={`hub-tab ${activeTab === "search" ? "active" : ""}`}
+                >
+                  <i className="bi bi-search-heart me-2" /> Find Your Match
+                </button>
               </div>
 
               <div className="card-body p-4 p-md-5">
-                {/* Tab 1: Registration Form */}
                 {activeTab === "register" && (
                   <div>
                     <div className="text-center mb-4">
-                      <h3 className="fw-bold text-dark font-heading mb-1">
-                        Begin Your Search with a <span className="gradient-text">FREE Registration</span>
-                      </h3>
-                      <p className="text-muted small">It only takes 2 minutes to create your matrimonial profile.</p>
+                      <h2 className="mb-1" style={{ fontSize: "2.2rem" }}>
+                        {t("home.regTitle1")} <span className="gradient-text">{t("home.regTitle2")}</span>
+                      </h2>
+                      <p className="text-muted small mb-0">{t("home.regSub")}</p>
+                      <span className="ornament" />
                     </div>
 
-                    {error && <div className="alert alert-danger py-2 small rounded-3">{error}</div>}
+                    {error && (
+                      <div className="alert alert-danger py-2 small d-flex align-items-center gap-2" role="alert">
+                        <i className="bi bi-exclamation-circle" /> {error}
+                      </div>
+                    )}
 
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={handleSubmit} noValidate={false}>
                       <div className="row g-3">
                         <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">First Name</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="e.g. Rahul"
-                            name="first_name"
-                            value={formData.first_name}
-                            onChange={handleChange}
-                            required
-                          />
+                          <label className="form-label" htmlFor="reg-first">First Name</label>
+                          <input id="reg-first" type="text" className="form-control" placeholder="e.g. Rahul"
+                            name="first_name" value={formData.first_name} onChange={handleChange} required autoComplete="given-name" />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" htmlFor="reg-last">Last Name</label>
+                          <input id="reg-last" type="text" className="form-control" placeholder="e.g. Sharma"
+                            name="last_name" value={formData.last_name} onChange={handleChange} required autoComplete="family-name" />
                         </div>
 
                         <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Last Name</label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="e.g. Sharma"
-                            name="last_name"
-                            value={formData.last_name}
-                            onChange={handleChange}
-                            required
-                          />
+                          <label className="form-label d-block">Profile For</label>
+                          <div className="d-flex gap-2">
+                            {[["Male", "Groom", "bi-gender-male"], ["Female", "Bride", "bi-gender-female"]].map(([val, label, icon]) => (
+                              <React.Fragment key={val}>
+                                <input type="radio" className="btn-check" name="gender" id={`g-${val}`} value={val}
+                                  checked={formData.gender === val} onChange={handleChange} />
+                                <label className="btn btn-outline-danger flex-fill" htmlFor={`g-${val}`}>
+                                  <i className={`bi ${icon} me-1`} /> {label}
+                                </label>
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" htmlFor="reg-dob">Date of Birth</label>
+                          <input id="reg-dob" type="date" className="form-control" name="dob" value={formData.dob}
+                            onChange={handleChange} required max={yearsAgo(minAge)} min={yearsAgo(80)} />
+                          <div className="form-text small">Minimum age {minAge} for {formData.gender === "Male" ? "grooms" : "brides"}.</div>
                         </div>
 
                         <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Gender</label>
-                          <select
-                            className="form-select"
-                            name="gender"
-                            value={formData.gender}
-                            onChange={handleChange}
-                          >
-                            <option value="Male">Male (Groom)</option>
-                            <option value="Female">Female (Bride)</option>
-                          </select>
-                        </div>
-
-                        <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Date of Birth</label>
-                          <input
-                            type="date"
-                            className="form-control"
-                            name="dob"
-                            value={formData.dob}
-                            onChange={handleChange}
-                            required
-                          />
-                        </div>
-
-                        <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Caste / Community</label>
-                          <select
-                            className="form-select"
-                            name="caste_id"
-                            value={formData.caste_id}
-                            onChange={handleChange}
-                            required
-                          >
-                            <option value="">Select Caste</option>
+                          <label className="form-label" htmlFor="reg-caste">Community</label>
+                          <select id="reg-caste" className="form-select" name="caste_id" value={formData.caste_id} onChange={handleChange} required>
+                            <option value="">Select community</option>
                             {castes.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
+                              <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </select>
                         </div>
-
                         <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Mobile Number</label>
-                          <input
-                            type="tel"
-                            className="form-control"
-                            placeholder="10-digit number"
-                            name="mobile_no"
-                            value={formData.mobile_no}
-                            onChange={handleChange}
-                            required
-                          />
-                        </div>
-
-                        <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Email Address</label>
-                          <input
-                            type="email"
-                            className="form-control"
-                            placeholder="e.g. rahul@example.com"
-                            name="email"
-                            value={formData.email}
-                            onChange={handleChange}
-                            required
-                          />
-                        </div>
-
-                        <div className="col-md-6">
-                          <label className="form-label small fw-semibold text-secondary">Email Verification</label>
+                          <label className="form-label" htmlFor="reg-mobile">Mobile Number</label>
                           <div className="input-group">
-                            <input
-                              type="text"
-                              className="form-control"
-                              placeholder="Enter OTP"
-                              name="otp"
-                              value={formData.otp}
-                              onChange={handleChange}
-                            />
-                            <button
-                              type="button"
-                              className="btn btn-outline-danger"
-                              onClick={handleSendOtp}
-                            >
-                              Send OTP
-                            </button>
+                            <span className="input-group-text">+91</span>
+                            <input id="reg-mobile" type="tel" className="form-control" placeholder="10-digit number"
+                              name="mobile_no" value={formData.mobile_no} onChange={handleChange} required
+                              pattern="[6-9][0-9]{9}" maxLength={10} inputMode="numeric" autoComplete="tel-national" />
                           </div>
                         </div>
 
-                        <div className="col-12">
-                          <label className="form-label small fw-semibold text-secondary">Create Secure Password</label>
+                        <div className="col-md-6">
+                          <label className="form-label" htmlFor="reg-email">Email Address</label>
+                          <input id="reg-email" type="email" className="form-control" placeholder="you@example.com"
+                            name="email" value={formData.email} onChange={handleChange} required autoComplete="email" />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" htmlFor="reg-otp">Email Verification Code</label>
                           <div className="input-group">
-                            <input
-                              type={showPassword ? "text" : "password"}
-                              className="form-control"
-                              placeholder="At least 6 characters"
-                              name="password"
-                              value={formData.password}
-                              onChange={handleChange}
-                              required
-                            />
-                            <button
-                              className="btn btn-outline-secondary"
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                            >
+                            <input id="reg-otp" type="text" className="form-control" placeholder="6-digit code"
+                              name="otp" value={formData.otp} onChange={handleChange} inputMode="numeric" maxLength={6} />
+                            <button type="button" className="btn btn-outline-danger" onClick={handleSendOtp}
+                              disabled={otpState.status === "sending" || otpState.cooldown > 0}>
+                              {otpState.status === "sending"
+                                ? "Sending…"
+                                : otpState.cooldown > 0
+                                ? `Resend ${otpState.cooldown}s`
+                                : otpState.status === "sent" ? "Resend" : "Send Code"}
+                            </button>
+                          </div>
+                          {otpState.message && (
+                            <div className={`form-text small ${otpState.status === "error" ? "text-danger" : otpState.status === "help" ? "text-warning-emphasis" : "text-success"}`}>
+                              <i className={`bi ${otpState.status === "error" ? "bi-x-circle" : otpState.status === "help" ? "bi-headset" : "bi-check-circle"} me-1`} />
+                              {otpState.message}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="col-12">
+                          <label className="form-label" htmlFor="reg-pass">Create a Secure Password</label>
+                          <div className="input-group">
+                            <input id="reg-pass" type={showPassword ? "text" : "password"} className="form-control"
+                              placeholder="Choose a strong password" name="password" value={formData.password}
+                              onChange={handleChange} required autoComplete="new-password" />
+                            <button className="btn btn-outline-secondary" type="button" onClick={() => setShowPassword(!showPassword)}
+                              aria-label={showPassword ? "Hide password" : "Show password"}>
                               {showPassword ? <FaEyeSlash /> : <FaEye />}
                             </button>
+                          </div>
+                          <div className="d-flex flex-wrap gap-2 mt-2">
+                            {passwordChecks.map((c) => (
+                              <span key={c.label} className={`badge rounded-pill ${c.ok ? "badge-gold" : "bg-light text-muted border"}`}>
+                                <i className={`bi ${c.ok ? "bi-check2" : "bi-dot"} me-1`} />{c.label}
+                              </span>
+                            ))}
                           </div>
                         </div>
 
                         <div className="col-12 text-center mt-3">
                           <div className="form-check d-inline-block">
-                            <input
-                              className="form-check-input"
-                              type="checkbox"
-                              name="agree"
-                              id="agreeCheck"
-                              checked={formData.agree}
-                              onChange={handleChange}
-                            />
+                            <input className="form-check-input" type="checkbox" name="agree" id="agreeCheck"
+                              checked={formData.agree} onChange={handleChange} />
                             <label className="form-check-label text-muted small ms-1" htmlFor="agreeCheck">
-                              I agree to the <Link href="/matrimoney/aboutus" className="text-danger fw-semibold">Terms of Service</Link> and Privacy Policy.
+                              I agree to the <Link href="/matrimoney/terms" className="text-danger fw-semibold" target="_blank">Terms of Use</Link> and <Link href="/matrimoney/privacy" className="text-danger fw-semibold" target="_blank">Privacy Policy</Link>.
                             </label>
                           </div>
                         </div>
 
-                        <div className="col-12 text-center mt-4">
-                          <button
-                            type="submit"
-                            disabled={loading}
-                            className="btn btn-primary btn-lg px-5 py-3 fw-bold shadow-sm"
-                            style={{ minWidth: "260px" }}
-                          >
-                            {loading ? "Creating Profile..." : "Register My Profile Free"}
+                        <div className="col-12 text-center mt-3">
+                          <button type="submit" disabled={loading} className="btn btn-primary btn-lg px-5" style={{ minWidth: 280 }}>
+                            {loading ? (
+                              <><span className="spinner-border spinner-border-sm me-2" /> Creating your profile…</>
+                            ) : (
+                              <>Register My Profile Free <i className="bi bi-arrow-right ms-2" /></>
+                            )}
                           </button>
+                          <div className="small text-muted mt-3">
+                            <i className="bi bi-lock-fill text-gold me-1" /> Your details are private and never shared without consent.
+                          </div>
                         </div>
                       </div>
                     </form>
                   </div>
                 )}
 
-                {/* Tab 2: Quick Match Search Form */}
                 {activeTab === "search" && (
                   <div>
                     <div className="text-center mb-4">
-                      <h3 className="fw-bold text-dark font-heading mb-1">
-                        Find Compatible <span className="gradient-text">Matches Near You</span>
-                      </h3>
-                      <p className="text-muted small">Filter by gender, age, community, and city to find prospective partners.</p>
+                      <h2 className="mb-1" style={{ fontSize: "2.2rem" }}>
+                        {t("home.searchTitle1")} <span className="gradient-text">{t("home.searchTitle2")}</span>
+                      </h2>
+                      <p className="text-muted small mb-0">{t("home.searchSub")}</p>
+                      <span className="ornament" />
                     </div>
 
                     <form onSubmit={handleQuickSearch}>
-                      <div className="row g-3">
+                      <div className="row g-3 align-items-end">
                         <div className="col-md-3">
-                          <label className="form-label small fw-semibold text-secondary">Looking For</label>
-                          <select
-                            className="form-select form-select-lg"
-                            value={searchGender}
-                            onChange={(e) => setSearchGender(e.target.value)}
-                          >
-                            <option value="Female">Bride (Female)</option>
-                            <option value="Male">Groom (Male)</option>
+                          <label className="form-label">Looking For</label>
+                          <select className="form-select" value={searchGender} onChange={(e) => setSearchGender(e.target.value)}>
+                            <option value="Female">Bride</option>
+                            <option value="Male">Groom</option>
                           </select>
                         </div>
-
                         <div className="col-md-3">
-                          <label className="form-label small fw-semibold text-secondary">Age Range</label>
+                          <label className="form-label">Age</label>
                           <div className="input-group">
-                            <input
-                              type="number"
-                              className="form-control form-select-lg"
-                              value={searchAgeFrom}
-                              onChange={(e) => setSearchAgeFrom(e.target.value)}
-                              placeholder="From"
-                              min="18"
-                              max="70"
-                            />
-                            <span className="input-group-text bg-light">to</span>
-                            <input
-                              type="number"
-                              className="form-control form-select-lg"
-                              value={searchAgeTo}
-                              onChange={(e) => setSearchAgeTo(e.target.value)}
-                              placeholder="To"
-                              min="18"
-                              max="70"
-                            />
+                            <input type="number" className="form-control" value={searchAgeFrom} min="18" max="70"
+                              onChange={(e) => setSearchAgeFrom(e.target.value)} aria-label="Minimum age" />
+                            <span className="input-group-text">to</span>
+                            <input type="number" className="form-control" value={searchAgeTo} min="18" max="70"
+                              onChange={(e) => setSearchAgeTo(e.target.value)} aria-label="Maximum age" />
                           </div>
                         </div>
-
                         <div className="col-md-3">
-                          <label className="form-label small fw-semibold text-secondary">Caste / Community</label>
-                          <select
-                            className="form-select form-select-lg"
-                            value={searchCaste}
-                            onChange={(e) => setSearchCaste(e.target.value)}
-                          >
-                            <option value="">Any Caste</option>
+                          <label className="form-label">Community</label>
+                          <select className="form-select" value={searchCaste} onChange={(e) => setSearchCaste(e.target.value)}>
+                            <option value="">Any community</option>
                             {castes.map((c) => (
-                              <option key={c.id} value={c.name}>
-                                {c.name}
-                              </option>
+                              <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </select>
                         </div>
-
-                        <div className="col-md-3 d-flex align-items-end">
-                          <button
-                            type="submit"
-                            className="btn btn-primary btn-lg w-100 py-3 fw-bold shadow-sm"
-                          >
-                            <i className="bi bi-search me-2"></i> Find Matches
+                        <div className="col-md-3">
+                          <button type="submit" className="btn btn-primary w-100 py-2">
+                            <i className="bi bi-search me-2" /> Search
                           </button>
                         </div>
                       </div>
@@ -576,158 +461,122 @@ const Home1 = () => {
                 )}
               </div>
             </div>
-          </div>
+          </Reveal>
         </div>
       </div>
 
-      {/* 3D Animated Live Platform Counter Strip */}
-      <div className="container py-5 my-3 perspective-1000">
+      {/* ================= TRUST NUMBERS ================= */}
+      <section className="container py-5 my-4">
         <div className="row g-4 text-center">
-          <div className="col-6 col-md-3">
-            <div className="p-4 bg-white rounded-4 shadow-sm border h-100 card-3d">
-              <div className="display-6 fw-bold text-danger mb-1 font-heading card-3d-lift">50,000+</div>
-              <div className="fw-semibold text-dark">Active Profiles</div>
-              <small className="text-muted">Verified Indian singles</small>
+          {[
+            { to: 50000, suffix: "+", label: "Verified Profiles", sub: "Screened by our team", icon: "bi-person-check" },
+            { to: 12500, suffix: "+", label: "Happy Marriages", sub: "Families united", icon: "bi-gem" },
+            { to: 100, suffix: "%", label: "Privacy Controlled", sub: "You choose who sees you", icon: "bi-shield-lock" },
+            { text: "24/7", label: "Assisted Matchmaking", sub: "AI & human guidance", icon: "bi-headset" },
+          ].map((s, i) => (
+            <div key={s.label} className="col-6 col-md-3">
+              <Reveal delay={i * 0.1} className="h-100">
+                <TiltCard className="stat-card h-100 p-4">
+                  <div className="stat-icon mb-3" style={{ transform: "translateZ(40px)" }}>
+                    <i className={`bi ${s.icon}`} />
+                  </div>
+                  <div className="stat-num mb-1" style={{ transform: "translateZ(50px)" }}>
+                    {s.text ? s.text : <AnimatedCounter to={s.to} suffix={s.suffix} />}
+                  </div>
+                  <div className="fw-semibold" style={{ color: "var(--maroon-900)" }}>{s.label}</div>
+                  <small className="text-muted">{s.sub}</small>
+                </TiltCard>
+              </Reveal>
             </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="p-4 bg-white rounded-4 shadow-sm border h-100 card-3d">
-              <div className="display-6 fw-bold text-warning mb-1 font-heading card-3d-lift">12,500+</div>
-              <div className="fw-semibold text-dark">Happy Marriages</div>
-              <small className="text-muted">Success stories uniting families</small>
-            </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="p-4 bg-white rounded-4 shadow-sm border h-100 card-3d">
-              <div className="display-6 fw-bold text-success mb-1 font-heading card-3d-lift">100%</div>
-              <div className="fw-semibold text-dark">Verified Mobile & Photos</div>
-              <small className="text-muted">Strict trust standards</small>
-            </div>
-          </div>
-          <div className="col-6 col-md-3">
-            <div className="p-4 bg-white rounded-4 shadow-sm border h-100 card-3d">
-              <div className="display-6 fw-bold text-primary mb-1 font-heading card-3d-lift">24/7</div>
-              <div className="fw-semibold text-dark">Assisted Matchmaking</div>
-              <small className="text-muted">AI & human guidance</small>
-            </div>
-          </div>
+          ))}
         </div>
-      </div>
+      </section>
 
-      {/* Featured Verified Profiles 3D Showcase */}
+      {/* ================= FEATURED PROFILES ================= */}
       {recentProfiles.length > 0 && (
-        <div className="py-5 bg-white border-top border-bottom perspective-1500">
-          <div className="container">
-            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+        <section className="py-5 section-soft">
+          <div className="container py-3">
+            <Reveal className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-5">
               <div>
-                <span className="badge bg-danger-subtle text-danger px-3 py-1 rounded-pill fw-bold mb-2">
-                  ✨ FEATURED MEMBERS
-                </span>
-                <h3 className="fw-bold font-heading text-dark mb-0">Recently Joined Verified Profiles</h3>
+                <span className="eyebrow mb-2">{t("home.featuredEyebrow")}</span>
+                <h2 className="mb-0" style={{ fontSize: "2.6rem" }}>{t("home.featuredTitle")}</h2>
               </div>
-              <Link href="/matrimoney/matches/overall" className="btn btn-outline-danger btn-sm rounded-pill px-4 fw-bold">
-                View All Matches &rarr;
+              <Link href="/matrimoney/matches/overall" className="btn btn-outline-danger px-4">
+                View All Matches <i className="bi bi-arrow-right ms-1" />
               </Link>
-            </div>
+            </Reveal>
 
             <div className="row g-4">
-              {recentProfiles.map((p) => (
+              {recentProfiles.map((p, i) => (
                 <div key={p.user_id} className="col-6 col-md-3">
-                  <div className="card card-3d bg-white h-100 border rounded-4 overflow-hidden shadow-sm">
-                    <div className="position-relative" style={{ height: "220px" }}>
-                      <img
-                        src={p.photo || "/uploads/default.jpg"}
-                        alt={p.first_name}
-                        className="w-100 h-100 object-fit-cover"
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = "/Image_02/tra1.jpg";
-                        }}
-                      />
-                      <span className="position-absolute top-0 end-0 m-2 badge bg-success shadow-sm rounded-pill">
-                        <i className="bi bi-patch-check-fill me-1"></i> Verified
-                      </span>
-                    </div>
-                    <div className="card-body p-3 text-center">
-                      <h6 className="fw-bold text-dark mb-1">{p.first_name}</h6>
-                      <small className="badge bg-light text-dark border mb-2 font-monospace">{p.matri_id}</small>
-                      <div className="d-block text-muted small">{p.gender || "Member"}</div>
-                      <Link
-                        href={`/matrimoney/profile-details/${p.matri_id}`}
-                        className="btn btn-sm btn-outline-danger rounded-pill w-100 mt-2 fw-semibold"
-                      >
-                        View Profile
-                      </Link>
-                    </div>
-                  </div>
+                  <Reveal delay={i * 0.08} className="h-100">
+                    <TiltCard className="profile-tilt h-100">
+                      <div className="position-relative overflow-hidden" style={{ height: 260, borderRadius: "22px 22px 0 0" }}>
+                        <img
+                          src={p.photo || "/uploads/default.jpg"}
+                          alt={p.first_name}
+                          className="w-100 h-100 object-fit-cover profile-tilt-img"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = String(p.gender).toLowerCase() === "male" ? "/images/avatar-male.svg" : "/images/avatar-female.svg";
+                          }}
+                        />
+                        <div className="profile-tilt-shade" />
+                        <span className="verified-chip"><i className="bi bi-patch-check-fill" /> Verified</span>
+                        <div className="position-absolute bottom-0 start-0 p-3 text-white">
+                          <div className="fw-semibold" style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", lineHeight: 1 }}>{p.first_name}</div>
+                          <small className="opacity-75 font-monospace">{p.matri_id}</small>
+                        </div>
+                      </div>
+                      <div className="p-3 text-center">
+                        <div className="text-muted small mb-2">{p.gender === "Male" ? "Groom" : p.gender === "Female" ? "Bride" : "Member"}</div>
+                        <Link href={`/matrimoney/profile-details/${p.matri_id}`} className="btn btn-sm btn-primary w-100">
+                          View Profile
+                        </Link>
+                      </div>
+                    </TiltCard>
+                  </Reveal>
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* 3 Steps To Your Life Partner */}
-      <div className="py-5 bg-light perspective-1000">
-        <div className="container">
-          <div className="text-center mb-5">
-            <span className="badge bg-danger-subtle text-danger px-3 py-2 rounded-pill fw-bold mb-2">
-              SIMPLE 3-STEP JOURNEY
-            </span>
-            <h2 className="fw-bold font-heading text-dark">How MatriMoney Works</h2>
-            <p className="text-muted">Start connecting with your future partner in three intuitive steps</p>
-          </div>
+      {/* ================= THREE STEPS ================= */}
+      <section className="py-5 position-relative overflow-hidden section-ivory">
+        <div className="mandala-deco" style={{ width: 520, height: 520, left: -200, top: -120 }} aria-hidden="true" />
+        <div className="container py-4 position-relative">
+          <Reveal className="text-center mb-5">
+            <span className="eyebrow mb-2">{t("home.stepsEyebrow")}</span>
+            <h2 style={{ fontSize: "2.8rem" }}>{t("home.stepsTitle")}</h2>
+            <span className="ornament" />
+          </Reveal>
 
           <div className="row g-4 text-center">
-            <div className="col-md-4">
-              <div className="step-3d-box p-4 h-100 card-3d">
-                <div
-                  className="rounded-circle d-flex align-items-center justify-content-center text-white mx-auto mb-3 shadow card-3d-lift"
-                  style={{ width: 68, height: 68, background: "linear-gradient(135deg, #490B22, #C2185B)" }}
-                >
-                  <i className="bi bi-person-badge-fill fs-3"></i>
-                </div>
-                <h5 className="fw-bold text-dark mb-2">1. Create Your Profile</h5>
-                <p className="text-muted small mb-0">
-                  Register for free, add your photos, educational qualifications, caste, and partner expectations.
-                </p>
+            {[
+              { icon: "bi-person-vcard", title: t("home.step1t"), text: t("home.step1d") },
+              { icon: "bi-hearts", title: t("home.step2t"), text: t("home.step2d") },
+              { icon: "bi-flower1", title: t("home.step3t"), text: t("home.step3d") },
+            ].map((s, i) => (
+              <div key={s.title} className="col-md-4">
+                <Reveal delay={i * 0.15} className="h-100">
+                  <TiltCard className="step-3d-box p-4 p-lg-5 h-100" max={8}>
+                    <div className="step-orb mx-auto mb-4" style={{ transform: "translateZ(60px)" }}>
+                      <i className={`bi ${s.icon}`} />
+                    </div>
+                    <div className="eyebrow justify-content-center mb-2" style={{ fontSize: "0.65rem" }}>{t("home.step")} {i + 1}</div>
+                    <h4 className="mb-2" style={{ fontSize: "1.7rem", transform: "translateZ(30px)" }}>{s.title}</h4>
+                    <p className="text-muted small mb-0">{s.text}</p>
+                  </TiltCard>
+                </Reveal>
               </div>
-            </div>
-
-            <div className="col-md-4">
-              <div className="step-3d-box p-4 h-100 card-3d">
-                <div
-                  className="rounded-circle d-flex align-items-center justify-content-center text-white mx-auto mb-3 shadow card-3d-lift"
-                  style={{ width: 68, height: 68, background: "linear-gradient(135deg, #E33183, #F43F5E)" }}
-                >
-                  <i className="bi bi-heart-pulse-fill fs-3"></i>
-                </div>
-                <h5 className="fw-bold text-dark mb-2">2. Connect & Express Interest</h5>
-                <p className="text-muted small mb-0">
-                  Search through thousands of verified profiles, shortlist your favorites, and send direct interests.
-                </p>
-              </div>
-            </div>
-
-            <div className="col-md-4">
-              <div className="step-3d-box p-4 h-100 card-3d">
-                <div
-                  className="rounded-circle d-flex align-items-center justify-content-center text-white mx-auto mb-3 shadow card-3d-lift"
-                  style={{ width: 68, height: 68, background: "linear-gradient(135deg, #D97706, #F59E0B)" }}
-                >
-                  <i className="bi bi-chat-quote-fill fs-3"></i>
-                </div>
-                <h5 className="fw-bold text-dark mb-2">3. Meet & Celebrate</h5>
-                <p className="text-muted small mb-0">
-                  Communicate securely through chat, exchange verified phone numbers, and plan your wedding.
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Success Stories Component */}
+      {/* Stories, why-us, traditions */}
       <MatrimonyMidPage />
     </>
   );

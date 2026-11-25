@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { query } from '@/lib/db';
 
+import { verifyLogin } from "@/lib/auth";
 /* ---------------- helpers ---------------- */
 function readTokenFromRequest(req) {
   const tokenFromCookie =
@@ -179,7 +180,7 @@ export async function GET(request) {
     if (!secret) return NextResponse.json({ error: 'Server misconfig' }, { status: 500 });
 
     let decoded;
-    try { decoded = jwt.verify(token, secret); }
+    try { decoded = await verifyLogin(token); }
     catch { return NextResponse.json({ error: 'Invalid token' }, { status: 401 }); }
 
     const userId = decoded?.id ?? decoded?.userId;

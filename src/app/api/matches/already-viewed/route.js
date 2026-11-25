@@ -10,7 +10,7 @@ export async function GET(req) {
     const sp = new URL(req.url).searchParams;
 
     const me = await getAuthUser();
-    const meId = me?.id || sp.get("me");
+    const meId = me?.id; // identity comes only from the verified session cookie
     if (!meId) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
     }

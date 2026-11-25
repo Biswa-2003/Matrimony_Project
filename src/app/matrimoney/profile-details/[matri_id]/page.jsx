@@ -6,7 +6,16 @@ import SendInterestButton from "./SendInterestButton";
 import ShortlistButton from "./ShortlistButton";
 import ViewContactButton from "./ViewContactButton";
 import ProfileGlobalStyles from "./ProfileGlobalStyles";
+import ProfileSafetyActions from "./ProfileSafetyActions";
+import SimilarProfiles from "./SimilarProfiles";
+import HoroscopeCard from "./HoroscopeCard";
+import PhotoRequestButton from "./PhotoRequestButton";
+import ShareProfileButton from "./ShareProfileButton";
+import { photoUrl } from "@/lib/members";
+import SafeImage from "@/app/components/SafeImage";
+import { isBlockedBetween } from "@/lib/schema";
 
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -19,8 +28,13 @@ function cmToFeetInches(cm) {
   const inch = total % 12;
   return `${ft}ft ${inch}in`;
 }
+// Short all-lowercase values from forms/lookups ("india", "odia", "no") read better capitalised.
+const tidy = (s) =>
+  s.length <= 40 && s === s.toLowerCase() && /^[a-z][a-z\s\-/&,.]*$/.test(s)
+    ? s.replace(/(^|[\s\-/&,])([a-z])/g, (m, sep, c) => sep + c.toUpperCase())
+    : s;
 const text = (v, fb = "—") =>
-  v === null || v === undefined || String(v).trim() === "" ? fb : String(v).trim();
+  v === null || v === undefined || String(v).trim() === "" ? fb : tidy(String(v).trim());
 
 function ageFromDob(dob) {
   if (!dob) return null;
@@ -44,7 +58,7 @@ async function getUserIdFromCookieSSR() {
   const secret = process.env.JWT_SECRET;
   if (!token || !secret) return null;
   try {
-    const dec = jwt.verify(token, secret);
+    const dec = await verifyLogin(token);
     return dec?.id ?? dec?.userId ?? null;
   } catch {
     return null;
@@ -372,37 +386,53 @@ function evaluateAgainst(profile, prefs) {
 function MatchBlock({ title, result }) {
   if (!result) return null;
   const { score, total, checks } = result;
+  const pct = total ? Math.round((score / total) * 100) : 0;
+  const r = 34;
+  const c = 2 * Math.PI * r;
 
   return (
     <div className="card pe-card mb-4">
-      <div className="card-header bg-white fw-bold text-maroon">{title}</div>
+      <div className="card-header">{title}</div>
       <div className="card-body">
-        <div className="d-flex align-items-center mb-3">
-          <div className="display-4 fw-bold text-primary me-3">
-            {score}/{total}
-          </div>
-          <div>
-            <h6 className="mb-0 fw-bold">Compatibility Score</h6>
-            <small className="text-muted">Based on Partner Preferences</small>
-          </div>
-        </div>
-
-        <ul className="list-group list-group-flush">
-          {checks.map((c, i) => (
-            <li key={i} className="list-group-item d-flex justify-content-between align-items-center px-0">
-              <span>{c.label}</span>
-              {c.considered ? (
-                c.pass ? (
-                  <span className="badge bg-success-subtle text-success rounded-pill">Matched</span>
-                ) : (
-                  <span className="badge bg-danger-subtle text-danger rounded-pill">Mis-match</span>
-                )
-              ) : (
-                <span className="badge bg-light text-muted rounded-pill">Not Specified</span>
-              )}
-            </li>
-          ))}
-        </ul>
+        {total === 0 ? (
+          <p className="small text-muted mb-0">
+            No partner preferences set yet, so compatibility can&apos;t be calculated.
+          </p>
+        ) : (
+          <>
+            <div className="d-flex align-items-center gap-3 mb-3">
+              <div className="position-relative" style={{ width: 84, height: 84 }}>
+                <svg width="84" height="84" viewBox="0 0 84 84" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="42" cy="42" r={r} fill="none" stroke="#f3e8d6" strokeWidth="8" />
+                  <circle cx="42" cy="42" r={r} fill="none" stroke="url(#mbGold)" strokeWidth="8" strokeLinecap="round"
+                    strokeDasharray={`${(pct / 100) * c} ${c}`} />
+                  <defs>
+                    <linearGradient id="mbGold" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stopColor="#f3dc9b" /><stop offset=".5" stopColor="#c9a24a" /><stop offset="1" stopColor="#9c7a2c" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div className="position-absolute top-50 start-50 translate-middle stat-num" style={{ fontSize: "1.5rem" }}>{pct}%</div>
+              </div>
+              <div>
+                <div className="fw-semibold" style={{ color: "var(--maroon-900)" }}>{score} of {total} preferences match</div>
+                <small className="text-muted">Based on stated partner preferences</small>
+              </div>
+            </div>
+            <ul className="list-unstyled mb-0 d-flex flex-column gap-2">
+              {checks.filter((x) => x.considered).map((x) => (
+                <li key={x.label} className="d-flex justify-content-between align-items-center small">
+                  <span>{x.label}</span>
+                  {x.pass ? (
+                    <span className="text-success fw-semibold"><i className="bi bi-check-circle-fill me-1" />Match</span>
+                  ) : (
+                    <span className="text-muted"><i className="bi bi-dash-circle me-1" />Differs</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   );
@@ -445,6 +475,7 @@ export default async function ProfileDetailsPage({ params }) {
   const { matri_id } = await params;
 
   const row = await loadProfileByMatriId(matri_id);
+  if (row) row.photo_url = photoUrl(row.photo_url);
   if (!row) {
     return (
       <>
@@ -455,28 +486,45 @@ export default async function ProfileDetailsPage({ params }) {
     );
   }
 
-  // who is viewing?
+  // who is viewing? (independent lookups run in parallel)
   const viewerUserId = await getUserIdFromCookieSSR();
-  const viewerIsPremium = viewerUserId
-    ? await userIsPremium(viewerUserId)
-    : false;
   const targetUserId = row.user_id; // from mp.*
-  const targetIsPremium = targetUserId
-    ? await userIsPremium(targetUserId)
-    : false;
+  const isSelf = viewerUserId && String(viewerUserId) === String(targetUserId);
 
-  // Insert profile view (if logged in and not self)
-  if (viewerUserId && viewerUserId !== targetUserId) {
-    // Fire and forget (optional: await it)
-    await query(
-      `INSERT INTO profile_views (viewer_id, viewed_id, viewed_at) VALUES ($1, $2, NOW())
-       ON CONFLICT (viewer_id, viewed_id) DO UPDATE SET viewed_at = NOW()`,
-      [viewerUserId, targetUserId]
-    ).catch(e => console.error('Failed to log profile view', e));
+  let blocked = false;
+  if (viewerUserId && !isSelf) {
+    try {
+      blocked = await isBlockedBetween(viewerUserId, targetUserId);
+    } catch { /* blocks table unavailable */ }
   }
 
-  // Check connection
-  const connectionStatus = await checkConnectionStatus(viewerUserId, targetUserId);
+  if (!isSelf && (blocked || row.is_active === false)) {
+    return (
+      <div className="profile-surface d-flex align-items-center justify-content-center py-5" style={{ minHeight: "70vh" }}>
+        <div className="luxe-card p-5 text-center" style={{ maxWidth: 480 }}>
+          <div className="why-icon"><i className="bi bi-eye-slash" /></div>
+          <h2 className="mb-2" style={{ fontSize: "2rem" }}>Profile Unavailable</h2>
+          <p className="text-muted mb-4">This profile is not available to view.</p>
+          <a href="/matrimoney/matches/overall" className="btn btn-primary px-4">Browse Matches</a>
+        </div>
+        <ProfileGlobalStyles />
+      </div>
+    );
+  }
+
+  const [viewerIsPremium, targetIsPremium, connectionStatus] = await Promise.all([
+    viewerUserId ? userIsPremium(viewerUserId) : false,
+    targetUserId ? userIsPremium(targetUserId) : false,
+    checkConnectionStatus(viewerUserId, targetUserId),
+    // log the profile view (if logged in and not self)
+    viewerUserId && !isSelf
+      ? query(
+          `INSERT INTO profile_views (viewer_id, viewed_id, viewed_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (viewer_id, viewed_id) DO UPDATE SET viewed_at = NOW()`,
+          [viewerUserId, targetUserId]
+        ).catch((e) => console.error("Failed to log profile view", e))
+      : null,
+  ]);
   const isConnected = connectionStatus === 'accepted';
 
   const displayName =
@@ -485,7 +533,7 @@ export default async function ProfileDetailsPage({ params }) {
       : row.matri_id) || "Profile";
   const heightText =
     row.height_cm != null ? cmToFeetInches(row.height_cm) : "—";
-  const location = [row.city_name, row.state_name, row.country_name || "India"]
+  const location = [row.city_name, row.state_name, text(row.country_name, "India")]
     .filter(Boolean)
     .join(", ");
 
@@ -524,8 +572,9 @@ export default async function ProfileDetailsPage({ params }) {
                   }}
                 >
                   {row.photo_url ? (
-                    <img
+                    <SafeImage
                       src={row.photo_url}
+                      fallback={String(row.gender || "").toLowerCase() === "male" ? "/images/avatar-male.svg" : "/images/avatar-female.svg"}
                       alt={displayName}
                       className="rounded-3"
                       style={{
@@ -534,6 +583,7 @@ export default async function ProfileDetailsPage({ params }) {
                         objectFit: "cover",
                         filter: "blur(8px)",
                       }}
+                      fallbackStyle={{ objectFit: "contain", padding: "18%", filter: "none" }}
                     />
                   ) : (
                     <div className="text-muted">Premium photo</div>
@@ -589,121 +639,138 @@ export default async function ProfileDetailsPage({ params }) {
     viewer && viewer.partner_json ? evaluateAgainst(row, viewer.partner_json) : null;
 
   // Decide blur
-  const shouldBlur = row.photo_locked && viewerUserId !== targetUserId && !isConnected;
+  const lockedForViewer = Boolean(row.photo_locked) && !isSelf && !isConnected;
+  const shouldBlur = lockedForViewer && !String(row.photo_url || "").startsWith("/api/member-photo/");
+  // gallery: other photos of this member (the member-photo route enforces the lock per image)
+  let gallery = [];
+  try {
+    const g = await query(
+      `SELECT path FROM photos WHERE profile_id = $1 ORDER BY is_primary DESC, created_at DESC LIMIT 8`,
+      [row.id]
+    );
+    gallery = lockedForViewer ? [] : g.rows.map((r) => photoUrl(r.path)).filter(Boolean);
+  } catch { /* photos table unavailable */ }
+
+  const fallbackAvatar = String(row.gender || "").toLowerCase() === "male" ? "/images/avatar-male.svg" : "/images/avatar-female.svg";
+  const ageText = row.age_years ?? ageFromDob(row.dob);
+  const chips = [
+    ageText ? { icon: "bi-calendar-heart", text: `${ageText} yrs` } : null,
+    heightText && heightText !== "—" ? { icon: "bi-arrows-vertical", text: heightText } : null,
+    row.religion_name ? { icon: "bi-flower1", text: row.religion_name } : null,
+    row.caste_name ? { icon: "bi-people", text: row.caste_name } : null,
+    location ? { icon: "bi-geo-alt", text: location } : null,
+    row.marital_status ? { icon: "bi-heart", text: row.marital_status } : null,
+  ].filter(Boolean);
 
   return (
     <>
-      <div className="profile-surface py-4">
-        <div className="container py-4">
-          {/* Header */}
-          <div className="d-flex align-items-center justify-content-between mb-4">
-            <h4 className="mb-0 fw-bold text-maroon">
-              {displayName} <span className="text-muted fw-normal fs-6">[{row.matri_id}]</span>
-              {targetIsPremium && (
-                <span className="badge bg-primary ms-2 fs-6">Premium Member</span>
-              )}
-            </h4>
-            <a href="/dashboard/myhome" className="btn btn-outline-secondary btn-sm">
-              Back
+      <div className="profile-surface pb-4">
+        {/* Royal header band */}
+        <section className="profile-hero">
+          <div className="mandala-deco light" style={{ width: 560, height: 560, right: -160, top: -220 }} aria-hidden="true" />
+          <div className="container position-relative">
+            <a href="/dashboard/myhome" className="profile-back">
+              <i className="bi bi-arrow-left me-1" /> Back to dashboard
             </a>
           </div>
+        </section>
 
-          {/* Top snapshot */}
-          <div className="row g-4 mb-4">
-            <div className="col-12 col-md-4">
-              <div
-                className="pe-card p-2 d-flex align-items-center justify-content-center bg-white"
-                style={{
-                  width: "100%",
-                  height: 380,
-                  overflow: "hidden",
-                }}
-              >
-                {row.photo_url ? (
-                  <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                    <img
-                      src={row.photo_url}
-                      alt={displayName}
-                      className="rounded-3"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        filter: shouldBlur ? "blur(15px)" : "none",
-                      }}
-                    />
-                    {shouldBlur && (
-                      <div
-                        className="position-absolute top-50 start-50 translate-middle d-flex flex-column align-items-center justify-content-center text-center p-3"
-                        style={{
-                          width: "80%",
-                          background: "rgba(255,255,255,0.85)",
-                          borderRadius: 12,
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                        }}
-                      >
-                        <i className="bi bi-lock-fill text-dark fs-1 mb-2"></i>
-                        <span className="fw-bold text-dark mb-1">Photo Locked</span>
-                        <small className="text-muted" style={{ fontSize: "0.75rem" }}>
-                          This member has chosen to keep their photo private.
-                        </small>
-                      </div>
-                    )}
-                  </div>
+        <div className="container profile-head">
+          <div className="row g-4 align-items-end">
+            <div className="col-12 col-md-4 col-lg-3">
+              <div className="gold-frame profile-photo-frame">
+                <div className="position-relative" style={{ background: "#f6ead0", aspectRatio: "4 / 5" }}>
+                  <SafeImage
+                    src={row.photo_url}
+                    fallback={fallbackAvatar}
+                    alt={displayName}
+                    className="w-100 h-100"
+                    style={{ objectFit: "cover", filter: shouldBlur ? "blur(15px)" : "none" }}
+                    fallbackStyle={{ objectFit: "contain", padding: "18%", filter: "none" }}
+                  />
+                  {shouldBlur && (
+                    <div className="position-absolute top-50 start-50 translate-middle text-center p-3 profile-lock">
+                      <i className="bi bi-lock-fill fs-2 text-maroon d-block mb-1" />
+                      <span className="fw-semibold d-block" style={{ color: "var(--maroon-900)" }}>Photo Protected</span>
+                      <small className="text-muted" style={{ fontSize: "0.72rem" }}>Visible once you connect</small>
+                    </div>
+                  )}
+                  {targetIsPremium && (
+                    <span className="verified-chip" style={{ top: 10, left: 10, right: "auto" }}>
+                      <i className="bi bi-gem" /> Premium
+                    </span>
+                  )}
+                  {!isSelf && viewerUserId && (!row.photo_url || lockedForViewer) && (
+                    <PhotoRequestButton matriId={row.matri_id} locked={Boolean(row.photo_url) && lockedForViewer} />
+                  )}
+                </div>
+              </div>
+              {gallery.length > 1 && (
+                <div className="pd-gallery" aria-label="More photos">
+                  {gallery.map((src, i) => (
+                    <a key={src} href={src} target="_blank" rel="noopener noreferrer" title={`Photo ${i + 1}`}>
+                      <img src={src} alt={`${displayName} photo ${i + 1}`} loading="lazy" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="col-12 col-md-8 col-lg-9">
+              <div className="luxe-card p-4 p-lg-5">
+                <div className="d-flex flex-wrap align-items-center gap-2 mb-1">
+                  <span className="eyebrow" style={{ fontSize: "0.65rem" }}>Profile · {row.matri_id}</span>
+                </div>
+                <h1 className="mb-3" style={{ fontSize: "clamp(2.2rem, 4vw, 3.2rem)" }}>{displayName}</h1>
+
+                <div className="d-flex flex-wrap gap-2 mb-4">
+                  {chips.map((c) => (
+                    <span key={c.text} className="profile-chip">
+                      <i className={`bi ${c.icon}`} /> {c.text}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="row gy-3 mb-4">
+                  <Field label="Gender" value={text(row.gender)} />
+                  <Field label="Weight" value={row.weight_kg != null ? `${row.weight_kg} kg` : "—"} />
+                  <Field label="Education" value={text(row.education_name)} />
+                  <Field label="Profession" value={text(row.profession_name || row.job || row.job_role)} />
+                </div>
+
+                {isSelf ? (
+                <div className="owner-bar">
+                  <span><i className="bi bi-eye me-2" />This is how other members see your profile.</span>
+                  <span className="d-flex gap-2">
+                    <a href="/dashboard/profile-edit" className="btn btn-primary btn-sm px-3"><i className="bi bi-pencil me-1" />Edit profile</a>
+                    <a href="/dashboard/upload-photo" className="btn btn-outline-danger btn-sm px-3"><i className="bi bi-images me-1" />Photos</a>
+                    <ShareProfileButton matriId={row.matri_id} own />
+                  </span>
+                </div>
                 ) : (
-                  <div className="text-muted">No photo</div>
+                <div className="d-flex flex-wrap gap-2 gap-md-3 pt-4" style={{ borderTop: "1px solid rgba(201,162,74,.3)" }}>
+                  {isConnected && (
+                    <a href={`/dashboard/messages?with=${row.matri_id}`} className="btn btn-primary btn-sm px-3 d-inline-flex align-items-center">
+                      <i className="bi bi-chat-heart-fill me-2" />Message
+                    </a>
+                  )}
+                  <SendInterestButton matriId={row.matri_id} />
+                  <ShortlistButton matriId={row.matri_id} />
+                  {viewerUserId ? (
+                    <ViewContactButton matriId={row.matri_id} name={displayName} />
+                  ) : (
+                    <a href="/matrimoney/login" className="btn btn-outline-dark btn-sm px-3 fw-bold"><i className="bi bi-telephone-fill me-1" />Contact</a>
+                  )}
+                  {!isSelf && viewerUserId && <ShareProfileButton matriId={row.matri_id} firstName={String(displayName).split(" ")[0]} />}
+                  {!isSelf && viewerUserId && <ProfileSafetyActions matriId={row.matri_id} name={displayName} />}
+                </div>
                 )}
               </div>
             </div>
-
-            <div className="col-12 col-md-8">
-              <div className="card pe-card h-100">
-                <div className="card-body p-4">
-                  <h5 className="fw-bold text-maroon mb-4 border-bottom pb-2">Profile Snapshot</h5>
-                  <div className="row gy-3">
-                    <Field label="Gender" value={text(row.gender)} />
-                    <Field
-                      label="Age"
-                      value={row.age_years ?? ageFromDob(row.dob) ?? "—"}
-                    />
-                    <Field label="Religion" value={text(row.religion_name)} />
-                    <Field label="Caste" value={text(row.caste_name)} />
-                    <Field
-                      label="Marital Status"
-                      value={text(row.marital_status)}
-                    />
-                    <Field label="Height" value={heightText} />
-                    <Field
-                      label="Weight"
-                      value={
-                        row.weight_kg != null ? `${row.weight_kg} kg` : "—"
-                      }
-                    />
-                    <Field label="Location" value={location || "—"} />
-                  </div>
-
-                  <div className="mt-5 d-flex gap-3 border-top pt-4">
-                    <SendInterestButton matriId={row.matri_id} />
-                    <ShortlistButton matriId={row.matri_id} />
-                    <ViewContactButton
-                      mobile={
-                        viewerIsPremium || String(viewerUserId) === String(targetUserId)
-                          ? row.mobile
-                          : null
-                      }
-                      email={
-                        viewerIsPremium || String(viewerUserId) === String(targetUserId)
-                          ? row.email
-                          : null
-                      }
-                      isPremiumViewer={viewerIsPremium}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
+        </div>
 
+        <div className="container pt-4">
           <div className="row g-4">
             {/* Left Column Details */}
             <div className="col-lg-8">
@@ -801,7 +868,7 @@ export default async function ProfileDetailsPage({ params }) {
               <PartnerPrefs data={row.partner_json || {}} />
 
               {/* Comparison blocks */}
-              {viewer && (
+              {viewer && !isSelf && (
                 <>
                   <MatchBlock
                     title={`You vs ${displayName}`}
@@ -811,10 +878,15 @@ export default async function ProfileDetailsPage({ params }) {
                     title={`${displayName} vs You`}
                     result={themVsYou}
                   />
+                  <HoroscopeCard viewer={viewer} profile={row} name={displayName} />
                 </>
               )}
             </div>
           </div>
+
+          {!isSelf && viewerUserId && (
+            <SimilarProfiles matriId={row.matri_id} religionId={row.religion_id} age={row.age_years ?? ageFromDob(row.dob)} />
+          )}
         </div>
       </div>
       <ProfileGlobalStyles />

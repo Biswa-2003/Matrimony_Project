@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
 export const dynamic = "force-dynamic";
 
 export async function POST(req) {
+  { const limited = limitOr429(`profile-email:${clientIp(req)}`, 5, 15 * 60 * 1000); if (limited) return limited; }
   try {
     const { email } = await req.json();
 

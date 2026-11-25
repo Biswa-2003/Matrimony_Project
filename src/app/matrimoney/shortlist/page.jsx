@@ -16,7 +16,7 @@ function cmToFeetInches(cm) {
 }
 
 export default function ShortlistPage() {
-  const { items, meta, loading, error } = useShortlist({ limit: 50, offset: 0 }); // Increased limit for sidebar
+  const { items, meta, loading, error, remove } = useShortlist({ limit: 50, offset: 0 });
   const [selectedId, setSelectedId] = useState(null);
 
   // Auto-select first item
@@ -114,7 +114,7 @@ export default function ShortlistPage() {
               {/* Right Pane - Details */}
               <div className="col-lg-8 col-xl-9">
                 {selectedProfile ? (
-                  <ShortlistDetailView it={selectedProfile} />
+                  <ShortlistDetailView it={selectedProfile} onRemove={(id) => { setSelectedId(null); remove(id); }} />
                 ) : (
                   <div className="h-100 d-flex align-items-center justify-content-center text-muted">Select a profile</div>
                 )}
@@ -125,8 +125,8 @@ export default function ShortlistPage() {
       </div>
 
       <style jsx global>{`
-        .page-surface { background-color: #f4f7fa; min-height: 100vh; }
-        .header-section { background: linear-gradient(135deg, var(--brand-maroon) 0%, #800020 100%); border-bottom-left-radius: 30px; border-bottom-right-radius: 30px; }
+        .page-surface { background-color: var(--ivory); min-height: 100vh; }
+        .header-section { background: url('/images/paisley-light.svg') repeat, radial-gradient(120% 120% at 50% 0%, #7a1530 0%, #3b0a16 60%, #1c030b 100%); border-bottom-left-radius: 30px; border-bottom-right-radius: 30px; }
         .backdrop-blur { backdrop-filter: blur(5px); }
         .cursor-pointer { cursor: pointer; }
         .hover-bg-light:hover { background-color: rgba(255,255,255,0.6) !important; }
@@ -137,7 +137,7 @@ export default function ShortlistPage() {
   );
 }
 
-function ShortlistDetailView({ it }) {
+function ShortlistDetailView({ it, onRemove }) {
   const location = [it.city_name, it.state_name, it.country_name].filter(Boolean).join(', ');
   const p = {
     name: it.full_name || "User",
@@ -145,7 +145,7 @@ function ShortlistDetailView({ it }) {
     relation: "Member",
     photo: it.photo_url || null,
     profileUrl: `/matrimoney/profile-details/${it.matri_id}`,
-    status: it.status === 'accepted' ? 'Accepted' : 'Interest Sent',
+    status: 'Shortlisted',
     details: {
       Age: it.age_years ? String(it.age_years) : '—',
       Height: cmToFeetInches(it.height_cm),
@@ -205,7 +205,14 @@ function ShortlistDetailView({ it }) {
             <Link href={p.profileUrl} className="btn btn-primary rounded-pill px-4 fw-bold flex-grow-1">
               View Full Profile
             </Link>
-            <button className="btn btn-outline-danger rounded-circle p-2 d-flex align-items-center justify-content-center" style={{ width: 42, height: 42 }}>
+            <button
+              type="button"
+              onClick={() => onRemove?.(it.matri_id)}
+              title="Remove from shortlist"
+              aria-label="Remove from shortlist"
+              className="btn btn-outline-danger rounded-circle p-2 d-flex align-items-center justify-content-center"
+              style={{ width: 42, height: 42 }}
+            >
               <i className="bi bi-trash"></i>
             </button>
           </div>

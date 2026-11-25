@@ -1,782 +1,562 @@
 "use client";
-import "bootstrap/dist/css/bootstrap.min.css";
-import React, { useEffect, useRef, useState } from "react";
-import { Tab, Nav, Form, Row, Col, Button } from "react-bootstrap";
+
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
-import { useRouter } from "next/navigation";
-import DashNav from "@/app/components/dashnav";
+import { useRouter, useSearchParams } from "next/navigation";
+import MemberCard from "@/app/components/MemberCard";
+import { selectTheme, selectStyles } from "@/lib/select-theme";
 
-const fetcher = (url) => fetch(url).then((r) => r.json());
-const STORAGE_KEY = "advSearch:payload";
+/* ---------------- constants ---------------- */
+const AGES = Array.from({ length: 53 }, (_, i) => 18 + i);
+const HEIGHTS = Array.from({ length: 37 }, (_, i) => {
+  const inches = 54 + i; // 4ft 6in → 7ft 6in
+  return { cm: Math.round(inches * 2.54), label: `${Math.floor(inches / 12)}ft ${inches % 12}in` };
+});
+const MARITAL = ["Never Married", "Divorced", "Widowed", "Awaiting Divorce"];
+const DIETS = ["Vegetarian", "Non-Vegetarian", "Eggetarian", "Vegan"];
+const INCOMES = [
+  { v: 0, l: "Any income" },
+  { v: 300000, l: "₹3 Lakh+" },
+  { v: 500000, l: "₹5 Lakh+" },
+  { v: 1000000, l: "₹10 Lakh+" },
+  { v: 2000000, l: "₹20 Lakh+" },
+  { v: 5000000, l: "₹50 Lakh+" },
+];
+const SORTS = [
+  { v: "newest", l: "Newest members" },
+  { v: "updated", l: "Recently updated" },
+  { v: "age_asc", l: "Age: youngest first" },
+  { v: "age_desc", l: "Age: oldest first" },
+  { v: "height_desc", l: "Height: tallest first" },
+];
+const DEFAULTS = {
+  q: "",
+  ageMin: 18,
+  ageMax: 70,
+  heightMinCm: 0,
+  heightMaxCm: 0,
+  maritalStatuses: [],
+  religionIds: [],
+  casteIds: [],
+  motherTongueIds: [],
+  countryId: "",
+  stateIds: [],
+  cityIds: [],
+  educationIds: [],
+  professionIds: [],
+  incomeMin: 0,
+  diets: [],
+  withPhoto: false,
+  verifiedOnly: false,
+  joinedWithinDays: 0,
+  sort: "newest",
+};
+const PRESETS = [
+  { key: "new", label: "Joined this month", icon: "bi-stars", apply: { joinedWithinDays: 30, sort: "newest" } },
+  { key: "photo", label: "With photo", icon: "bi-image", apply: { withPhoto: true } },
+  { key: "verified", label: "Verified only", icon: "bi-patch-check", apply: { verifiedOnly: true } },
+  { key: "never", label: "Never married", icon: "bi-heart", apply: { maritalStatuses: ["Never Married"] } },
+];
 
-export default function SearchForm() {
+
+const json = (url) => fetch(url).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+const toOpts = (rows) => (Array.isArray(rows) ? rows : []).map((r) => ({ value: r.id, label: r.name }));
+const pick = (opts, vals) => opts.filter((o) => vals.includes(o.value));
+
+/* ---------------- page ---------------- */
+function SearchPage() {
   const router = useRouter();
-  const [key, setKey] = useState("regular");
-  const formRef = useRef(null);
+  const urlParams = useSearchParams();
+  const [mode, setMode] = useState("filters"); // filters | ai | id
+  const [f, setF] = useState(() => {
+    const s = { ...DEFAULTS };
+    const n = (k) => Number(urlParams.get(k)) || 0;
+    if (n("ageMin") || n("ageFrom")) s.ageMin = n("ageMin") || n("ageFrom");
+    if (n("ageMax") || n("ageTo")) s.ageMax = n("ageMax") || n("ageTo");
+    if (n("casteId")) s.casteIds = [n("casteId")];
+    if (n("religionId")) s.religionIds = [n("religionId")];
+    if (urlParams.get("q")) s.q = urlParams.get("q");
+    return s;
+  });
+  const set = (patch) => setF((prev) => ({ ...prev, ...patch }));
 
-  // lookups
-  const [countries, setCountries] = useState([]);
-  const [states, setStates] = useState([]);
-  const [cities, setCities] = useState([]);
-  const [religions, setReligions] = useState([]);
-  const [castes, setCastes] = useState([]);
-  const [educations, setEducations] = useState([]);
-  const [languages, setLanguages] = useState([]);
-
-  // selections
-  const [selectedCountry, setSelectedCountry] = useState("");
-  const [selectedStateIds, setSelectedStateIds] = useState([]);
-  const [selectedCityId, setSelectedCityId] = useState("");
-  const [religionId, setReligionId] = useState("");
-  const [motherTongueId, setMotherTongueId] = useState("");
-  const [selectedCaste, setSelectedCaste] = useState([]);
-  const [selectedEducation, setSelectedEducation] = useState([]);
-
-  const [ageMin, setAgeMin] = useState("18");
-  const [ageMax, setAgeMax] = useState("70");
-  const [heightMinLabel, setHeightMinLabel] = useState("4ft 7in");
-  const [heightMaxLabel, setHeightMaxLabel] = useState("7ft 0in");
-  const [maritalStatuses, setMaritalStatuses] = useState([]);
-
-  // AI Search states
-  const [aiText, setAiText] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResults, setAiResults] = useState([]);
-  const [aiError, setAiError] = useState("");
-
-  // react-select styles (using brand colors: #E33183 for primary)
-  const selectStyles = {
-    control: (base) => ({
-      ...base,
-      minHeight: 48,
-      borderColor: "rgba(0,0,0,0.1)",
-      borderRadius: "8px",
-      boxShadow: "none",
-      ":hover": { borderColor: "#E33183" }
-    }),
-    valueContainer: (b) => ({ ...b, padding: "2px 12px" }),
-    input: (b) => ({ ...b, margin: 0 }),
-    multiValue: (b) => ({ ...b, borderRadius: 12, backgroundColor: "#fff1f7" }), // bg-primary-subtle
-    multiValueLabel: (b) => ({ ...b, color: "#800020", fontWeight: '600', fontSize: '0.85rem' }),
-    multiValueRemove: (b) => ({ ...b, color: "#E33183", ':hover': { backgroundColor: '#E33183', color: 'white' } }),
-    option: (b, s) => ({ ...b, fontSize: 15, backgroundColor: s.isSelected ? "#E33183" : s.isFocused ? "#fff1f7" : "white", color: s.isSelected ? "#fff" : "#333" }),
-    placeholder: (b) => ({ ...b, fontSize: 15, color: '#6c757d' }),
-  };
-
-  // init lookups
+  /* lookups */
+  const [lk, setLk] = useState({ religions: [], castes: [], languages: [], countries: [], states: [], cities: [], educations: [], professions: [] });
   useEffect(() => {
-    fetcher("/api/lookups/countries").then(setCountries);
-    fetcher("/api/lookups/religions").then(setReligions);
-    fetcher("/api/lookups/educations").then((rows) =>
-      setEducations(rows.map((r) => ({ value: r.id, label: r.name })))
+    Promise.all([
+      json("/api/lookups/religions"),
+      json("/api/lookups/languages"),
+      json("/api/lookups/countries"),
+      json("/api/lookups/educations"),
+      json("/api/lookups/professions"),
+    ]).then(([religions, languages, countries, educations, professions]) =>
+      setLk((p) => ({ ...p, religions: toOpts(religions), languages: toOpts(languages), countries: toOpts(countries), educations: toOpts(educations), professions: toOpts(professions) }))
     );
-    fetcher("/api/lookups/languages").then(setLanguages);
   }, []);
-
-  // states for country
   useEffect(() => {
-    setStates([]); setSelectedStateIds([]); setCities([]); setSelectedCityId("");
-    if (!selectedCountry) return;
-    fetcher(`/api/lookups/states?country_id=${selectedCountry}`).then(setStates);
-  }, [selectedCountry]);
-
-  // cities for exactly one state
+    const rel = f.religionIds.length === 1 ? `?religion_id=${f.religionIds[0]}` : "";
+    json(`/api/lookups/castes${rel}`).then((rows) => setLk((p) => ({ ...p, castes: toOpts(rows) })));
+  }, [f.religionIds]);
   useEffect(() => {
-    setCities([]); setSelectedCityId("");
-    if (selectedStateIds.length !== 1) return;
-    fetcher(`/api/lookups/cities?state_id=${selectedStateIds[0]}`).then(setCities);
-  }, [selectedStateIds]);
-
-  // castes for religion
+    if (!f.countryId) return setLk((p) => ({ ...p, states: [], cities: [] }));
+    json(`/api/lookups/states?country_id=${f.countryId}`).then((rows) => setLk((p) => ({ ...p, states: toOpts(rows) })));
+  }, [f.countryId]);
   useEffect(() => {
-    setSelectedCaste([]);
-    if (!religionId) { setCastes([]); return; }
-    fetcher(`/api/lookups/castes?religion_id=${religionId}`).then((rows) =>
-      setCastes(rows.map((r) => ({ value: r.id, label: r.name })))
+    if (!f.stateIds.length) return setLk((p) => ({ ...p, cities: [] }));
+    Promise.all(f.stateIds.slice(0, 5).map((id) => json(`/api/lookups/cities?state_id=${id}`))).then((lists) =>
+      setLk((p) => ({ ...p, cities: toOpts(lists.flat()) }))
     );
-  }, [religionId]);
+  }, [f.stateIds]);
 
-  // Enter submit — only for Regular form
-  const onKeyDown = (e) => {
-    if (e.key !== "Enter" || e.shiftKey) return;
-    if (e.target.closest('[aria-expanded="true"]')) return; // ignore open react-select
-    e.preventDefault();
-    formRef.current?.requestSubmit();
-  };
+  /* results (debounced, cancellable) */
+  const [results, setResults] = useState([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState("");
+  const abortRef = useRef(null);
 
-  // height labels
-  const heightOptions = [
-    "4ft 0in", "4ft 1in", "4ft 2in", "4ft 3in", "4ft 4in", "4ft 5in", "4ft 6in", "4ft 7in", "4ft 8in", "4ft 9in", "4ft 10in", "4ft 11in",
-    "5ft 0in", "5ft 1in", "5ft 2in", "5ft 3in", "5ft 4in", "5ft 5in", "5ft 6in", "5ft 7in", "5ft 8in", "5ft 9in", "5ft 10in", "5ft 11in",
-    "6ft 0in", "6ft 1in", "6ft 2in", "6ft 3in", "6ft 4in", "6ft 5in", "6ft 6in", "6ft 7in", "6ft 8in", "6ft 9in", "6ft 10in", "6ft 11in",
-    "7ft 0in",
-  ];
-
-  const toggleStatus = (val) =>
-    setMaritalStatuses((prev) => (prev.includes(val) ? prev.filter((x) => x !== val) : [...prev, val]));
-
-  // Regular search submit
-  const onSubmit = (e) => {
-    e.preventDefault();
-
-    const payload = {
-      ageMin: Number(ageMin) || undefined,
-      ageMax: Number(ageMax) || undefined,
-      heightMinLabel,
-      heightMaxLabel,
-      maritalStatuses,
-      religionId: religionId ? Number(religionId) : undefined,
-      motherTongueId: motherTongueId ? Number(motherTongueId) : undefined,
-      casteId: selectedCaste[0]?.value,
-      countryId: selectedCountry ? Number(selectedCountry) : undefined,
-      stateIds: selectedStateIds.map(Number),
-      cityId: selectedCityId ? Number(selectedCityId) : undefined,
-      educationId: selectedEducation[0]?.value,
-      page: 1,
-      limit: 50,
-    };
-
-    try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); } catch { }
-    router.push("/matrimoney/advance-search-results");
-  };
-
-  // AI Search handler
-  const runAiSearch = async () => {
-    const q = aiText.trim();
-    if (!q || aiLoading) return;
-
-    setAiLoading(true);
-    setAiError("");
-    setAiResults([]);
-
+  const runSearch = useCallback(async (filters, pageNum = 1) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    pageNum === 1 ? setLoading(true) : setLoadingMore(true);
+    setError("");
     try {
-      const res = await fetch("/api/ai-search", {
+      const r = await fetch("/api/advanced-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: q }),
+        body: JSON.stringify({ ...filters, page: pageNum, limit: 24 }),
+        signal: ctrl.signal,
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "AI search failed");
-
-      setAiResults(data.results || []);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Search failed");
+      setResults((prev) => (pageNum === 1 ? j.results : [...prev, ...j.results]));
+      setCount(j.count || 0);
+      setHasMore(Boolean(j.hasMore));
+      setPage(pageNum);
     } catch (e) {
-      setAiError(e.message);
-      setAiResults([]);
+      if (e.name !== "AbortError") setError(e.message);
     } finally {
-      setAiLoading(false);
+      if (!ctrl.signal.aborted) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => runSearch(f, 1), 350);
+    return () => clearTimeout(t);
+  }, [f, runSearch]);
+
+  /* toast */
+  const [toast, setToast] = useState("");
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /* saved searches */
+  const [saved, setSaved] = useState([]);
+  const [saveName, setSaveName] = useState("");
+  const [showSave, setShowSave] = useState(false);
+  useEffect(() => {
+    fetch("/api/saved-searches").then((r) => (r.ok ? r.json() : { results: [] })).then((j) => setSaved(j.results || [])).catch(() => {});
+  }, []);
+  const saveSearch = async () => {
+    const name = saveName.trim();
+    if (!name) return;
+    const r = await fetch("/api/saved-searches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, params: f }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) {
+      setSaved((s) => [j.saved, ...s]);
+      setSaveName("");
+      setShowSave(false);
+      setToast("Search saved");
+    } else setToast(j.error || "Could not save");
+  };
+  const deleteSaved = async (id) => {
+    setSaved((s) => s.filter((x) => x.id !== id));
+    fetch(`/api/saved-searches?id=${id}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  /* AI */
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+  const runAi = async () => {
+    const text = aiText.trim();
+    if (!text || aiBusy) return;
+    setAiBusy(true);
+    setAiNote("");
+    try {
+      const r = await fetch("/api/ai-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.filters) throw new Error(j.error || "AI search is unavailable right now.");
+      const x = j.filters;
+      const next = { ...DEFAULTS, sort: f.sort };
+      if (x.age_min) next.ageMin = x.age_min;
+      if (x.age_max) next.ageMax = x.age_max;
+      if (x.height_min_cm) next.heightMinCm = x.height_min_cm;
+      if (x.height_max_cm) next.heightMaxCm = x.height_max_cm;
+      if (x.marital_status) next.maritalStatuses = [x.marital_status];
+      if (x.religion_id) next.religionIds = [x.religion_id];
+      if (x.caste_id) next.casteIds = [x.caste_id];
+      if (x.mother_tongue_id) next.motherTongueIds = [x.mother_tongue_id];
+      if (x.country_id) next.countryId = x.country_id;
+      if (x.state_id) next.stateIds = [x.state_id];
+      if (x.city_id) next.cityIds = [x.city_id];
+      setF(next);
+      const understood = [x.religion_name, x.caste_name, x.city_name || x.state_name, x.mother_tongue_name, x.age_min && `${x.age_min}–${x.age_max || 70} yrs`].filter(Boolean);
+      setAiNote(understood.length ? `Understood: ${understood.join(" · ")}` : "Filters applied from your description.");
+      setMode("filters");
+    } catch (e) {
+      setAiNote(e.message);
+    } finally {
+      setAiBusy(false);
     }
   };
 
+  /* by ID */
+  const [idText, setIdText] = useState("");
+  const goToId = (e) => {
+    e.preventDefault();
+    const id = idText.trim().toUpperCase();
+    if (id) router.push(`/matrimoney/profile-details/${encodeURIComponent(id)}`);
+  };
+
+  /* active filter chips */
+  const chips = useMemo(() => {
+    const c = [];
+    const nameOf = (opts, id) => opts.find((o) => o.value === id)?.label;
+    if (f.q) c.push({ k: "q", l: `“${f.q}”`, clear: { q: "" } });
+    if (f.ageMin !== 18 || f.ageMax !== 70) c.push({ k: "age", l: `${f.ageMin}–${f.ageMax} yrs`, clear: { ageMin: 18, ageMax: 70 } });
+    if (f.heightMinCm || f.heightMaxCm) c.push({ k: "h", l: "Height", clear: { heightMinCm: 0, heightMaxCm: 0 } });
+    f.maritalStatuses.forEach((m) => c.push({ k: `m${m}`, l: m, clear: { maritalStatuses: f.maritalStatuses.filter((x) => x !== m) } }));
+    f.religionIds.forEach((id) => c.push({ k: `r${id}`, l: nameOf(lk.religions, id) || "Religion", clear: { religionIds: f.religionIds.filter((x) => x !== id), casteIds: [] } }));
+    f.casteIds.forEach((id) => c.push({ k: `c${id}`, l: nameOf(lk.castes, id) || "Community", clear: { casteIds: f.casteIds.filter((x) => x !== id) } }));
+    f.motherTongueIds.forEach((id) => c.push({ k: `l${id}`, l: nameOf(lk.languages, id) || "Language", clear: { motherTongueIds: f.motherTongueIds.filter((x) => x !== id) } }));
+    if (f.countryId) c.push({ k: "co", l: nameOf(lk.countries, Number(f.countryId)) || "Country", clear: { countryId: "", stateIds: [], cityIds: [] } });
+    f.stateIds.forEach((id) => c.push({ k: `s${id}`, l: nameOf(lk.states, id) || "State", clear: { stateIds: f.stateIds.filter((x) => x !== id), cityIds: [] } }));
+    f.cityIds.forEach((id) => c.push({ k: `ci${id}`, l: nameOf(lk.cities, id) || "City", clear: { cityIds: f.cityIds.filter((x) => x !== id) } }));
+    f.educationIds.forEach((id) => c.push({ k: `e${id}`, l: nameOf(lk.educations, id) || "Education", clear: { educationIds: f.educationIds.filter((x) => x !== id) } }));
+    f.professionIds.forEach((id) => c.push({ k: `p${id}`, l: nameOf(lk.professions, id) || "Profession", clear: { professionIds: f.professionIds.filter((x) => x !== id) } }));
+    if (f.incomeMin) c.push({ k: "inc", l: INCOMES.find((i) => i.v === f.incomeMin)?.l, clear: { incomeMin: 0 } });
+    f.diets.forEach((d) => c.push({ k: `d${d}`, l: d, clear: { diets: f.diets.filter((x) => x !== d) } }));
+    if (f.withPhoto) c.push({ k: "ph", l: "With photo", clear: { withPhoto: false } });
+    if (f.verifiedOnly) c.push({ k: "v", l: "Verified", clear: { verifiedOnly: false } });
+    if (f.joinedWithinDays) c.push({ k: "j", l: `Joined in ${f.joinedWithinDays} days`, clear: { joinedWithinDays: 0 } });
+    return c;
+  }, [f, lk]);
+
+  const toggleIn = (key, val) => set({ [key]: f[key].includes(val) ? f[key].filter((x) => x !== val) : [...f[key], val] });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  /* ---------------- render ---------------- */
+  const Filters = (
+    <div className="search-filters">
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h5 className="mb-0"><i className="bi bi-sliders2 me-2 text-gold" />Refine</h5>
+        {chips.length > 0 && (
+          <button type="button" className="btn btn-link btn-sm text-danger text-decoration-none p-0" onClick={() => setF({ ...DEFAULTS, sort: f.sort })}>
+            Clear all
+          </button>
+        )}
+      </div>
+
+      <div className="sf-group">
+        <label className="form-label" htmlFor="sf-q">Name</label>
+        <div className="input-group">
+          <span className="input-group-text"><i className="bi bi-search" /></span>
+          <input id="sf-q" className="form-control" placeholder="Search by name" value={f.q} onChange={(e) => set({ q: e.target.value })} />
+        </div>
+      </div>
+
+      <div className="sf-group">
+        <label className="form-label">Age</label>
+        <div className="d-flex align-items-center gap-2">
+          <select className="form-select" value={f.ageMin} onChange={(e) => set({ ageMin: Number(e.target.value), ageMax: Math.max(f.ageMax, Number(e.target.value)) })} aria-label="Minimum age">
+            {AGES.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <span className="text-muted small">to</span>
+          <select className="form-select" value={f.ageMax} onChange={(e) => set({ ageMax: Number(e.target.value), ageMin: Math.min(f.ageMin, Number(e.target.value)) })} aria-label="Maximum age">
+            {AGES.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="sf-group">
+        <label className="form-label">Height</label>
+        <div className="d-flex align-items-center gap-2">
+          <select className="form-select" value={f.heightMinCm} onChange={(e) => set({ heightMinCm: Number(e.target.value) })} aria-label="Minimum height">
+            <option value={0}>Any</option>
+            {HEIGHTS.map((h) => <option key={h.cm} value={h.cm}>{h.label}</option>)}
+          </select>
+          <span className="text-muted small">to</span>
+          <select className="form-select" value={f.heightMaxCm} onChange={(e) => set({ heightMaxCm: Number(e.target.value) })} aria-label="Maximum height">
+            <option value={0}>Any</option>
+            {HEIGHTS.map((h) => <option key={h.cm} value={h.cm}>{h.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="sf-group">
+        <label className="form-label">Marital status</label>
+        <div className="d-flex flex-wrap gap-2">
+          {MARITAL.map((m) => (
+            <button key={m} type="button" className={`sf-pill ${f.maritalStatuses.includes(m) ? "on" : ""}`} onClick={() => toggleIn("maritalStatuses", m)}>{m}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="sf-section">Religion &amp; Community</div>
+      <div className="sf-group">
+        <Select isMulti placeholder="Any religion" options={lk.religions} value={pick(lk.religions, f.religionIds)}
+          onChange={(v) => set({ religionIds: v.map((o) => o.value), casteIds: [] })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="rel" />
+      </div>
+      <div className="sf-group">
+        <Select isMulti placeholder="Any community" options={lk.castes} value={pick(lk.castes, f.casteIds)}
+          onChange={(v) => set({ casteIds: v.map((o) => o.value) })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="caste" />
+      </div>
+      <div className="sf-group">
+        <Select isMulti placeholder="Any mother tongue" options={lk.languages} value={pick(lk.languages, f.motherTongueIds)}
+          onChange={(v) => set({ motherTongueIds: v.map((o) => o.value) })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="lang" />
+      </div>
+
+      <div className="sf-section">Location</div>
+      <div className="sf-group">
+        <select className="form-select" value={f.countryId} onChange={(e) => set({ countryId: e.target.value, stateIds: [], cityIds: [] })} aria-label="Country">
+          <option value="">Any country</option>
+          {lk.countries.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+      </div>
+      {f.countryId && (
+        <div className="sf-group">
+          <Select isMulti placeholder="Any state" options={lk.states} value={pick(lk.states, f.stateIds)}
+            onChange={(v) => set({ stateIds: v.map((o) => o.value), cityIds: [] })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="state" />
+        </div>
+      )}
+      {f.stateIds.length > 0 && (
+        <div className="sf-group">
+          <Select isMulti placeholder="Any city" options={lk.cities} value={pick(lk.cities, f.cityIds)}
+            onChange={(v) => set({ cityIds: v.map((o) => o.value) })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="city" />
+        </div>
+      )}
+
+      <div className="sf-section">Education &amp; Career</div>
+      <div className="sf-group">
+        <Select isMulti placeholder="Any education" options={lk.educations} value={pick(lk.educations, f.educationIds)}
+          onChange={(v) => set({ educationIds: v.map((o) => o.value) })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="edu" />
+      </div>
+      <div className="sf-group">
+        <Select isMulti placeholder="Any profession" options={lk.professions} value={pick(lk.professions, f.professionIds)}
+          onChange={(v) => set({ professionIds: v.map((o) => o.value) })} theme={selectTheme} styles={selectStyles} noOptionsMessage={() => "No matches"} instanceId="prof" />
+      </div>
+      <div className="sf-group">
+        <select className="form-select" value={f.incomeMin} onChange={(e) => set({ incomeMin: Number(e.target.value) })} aria-label="Annual income">
+          {INCOMES.map((i) => <option key={i.v} value={i.v}>{i.l}</option>)}
+        </select>
+      </div>
+
+      <div className="sf-section">Lifestyle &amp; Trust</div>
+      <div className="sf-group">
+        <div className="d-flex flex-wrap gap-2">
+          {DIETS.map((d) => (
+            <button key={d} type="button" className={`sf-pill ${f.diets.includes(d) ? "on" : ""}`} onClick={() => toggleIn("diets", d)}>{d}</button>
+          ))}
+        </div>
+      </div>
+      {[
+        ["withPhoto", "Profiles with photo"],
+        ["verifiedOnly", "Verified profiles only"],
+      ].map(([k, l]) => (
+        <div key={k} className="form-check form-switch mb-2">
+          <input className="form-check-input" type="checkbox" role="switch" id={`sw-${k}`} checked={f[k]} onChange={(e) => set({ [k]: e.target.checked })} />
+          <label className="form-check-label small" htmlFor={`sw-${k}`}>{l}</label>
+        </div>
+      ))}
+      <div className="sf-group mt-2">
+        <select className="form-select" value={f.joinedWithinDays} onChange={(e) => set({ joinedWithinDays: Number(e.target.value) })} aria-label="Joined within">
+          <option value={0}>Joined anytime</option>
+          <option value={7}>Joined in last 7 days</option>
+          <option value={30}>Joined in last 30 days</option>
+          <option value={90}>Joined in last 3 months</option>
+        </select>
+      </div>
+    </div>
+  );
+
   return (
-    <>
-      <div className="search-page-wrapper">
-        <div className="container py-5">
-          <div className="search-card">
-            {/* Card Header with Pattern */}
-            <div className="search-header p-5 text-center position-relative overflow-hidden">
-              <div className="position-absolute top-0 start-0 w-100 h-100 bg-pattern opacity-10"></div>
-              <div className="position-relative z-1">
-                <h2 className="fw-bold mb-2 text-white display-6">Find Your Perfect Match</h2>
-                <p className="mb-0 text-white-50 fs-5">Search through thousands of verified profiles</p>
+    <div className="page-surface pb-5">
+      {/* Hero */}
+      <section className="header-section text-center text-white">
+        <div className="container py-5 position-relative">
+          <span className="eyebrow light mb-2">Partner Search</span>
+          <h1 className="mb-2" style={{ fontSize: "clamp(2.3rem, 4.4vw, 3.4rem)" }}>Find Your Perfect Match</h1>
+          <p className="mb-4" style={{ color: "rgba(255,255,255,.72)" }}>Search thousands of verified profiles by values, community, location and career.</p>
+          <div className="search-modes mx-auto">
+            {[
+              ["filters", "bi-sliders2", "Smart Filters"],
+              ["ai", "bi-stars", "Describe with AI"],
+              ["id", "bi-person-badge", "Search by ID"],
+            ].map(([k, icon, label]) => (
+              <button key={k} type="button" className={`search-mode ${mode === k ? "active" : ""}`} onClick={() => setMode(k)}>
+                <i className={`bi ${icon} me-2`} />{label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="container mt-4">
+        {mode === "ai" && (
+          <div className="luxe-card p-4 p-lg-5 mb-4">
+            <span className="eyebrow mb-2">Describe your ideal partner</span>
+            <h3 className="mb-3" style={{ fontSize: "1.9rem" }}>Tell us in your own words</h3>
+            <textarea className="form-control mb-3" rows={3} value={aiText} onChange={(e) => setAiText(e.target.value)}
+              placeholder="e.g. Hindu Brahmin girl from Bhubaneswar, 24 to 29 years, Odia speaking, never married"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); runAi(); } }} />
+            <div className="d-flex flex-wrap gap-2 align-items-center">
+              <button type="button" className="btn btn-primary px-4" onClick={runAi} disabled={aiBusy || !aiText.trim()}>
+                {aiBusy ? <><span className="spinner-border spinner-border-sm me-2" />Understanding…</> : <><i className="bi bi-stars me-2" />Find Matches</>}
+              </button>
+              {["Never married doctor in Bangalore, 26-30", "Odia speaking Hindu, 5ft 5in+", "Sikh, Punjabi, Delhi, 25-32"].map((ex) => (
+                <button key={ex} type="button" className="sf-pill" onClick={() => setAiText(ex)}>{ex}</button>
+              ))}
+            </div>
+            {aiNote && <div className="alert alert-warning small mt-3 mb-0">{aiNote}</div>}
+          </div>
+        )}
+
+        {mode === "id" && (
+          <form className="luxe-card p-4 p-lg-5 mb-4" onSubmit={goToId}>
+            <span className="eyebrow mb-2">Know a member&apos;s ID?</span>
+            <h3 className="mb-3" style={{ fontSize: "1.9rem" }}>Go straight to their profile</h3>
+            <div className="input-group" style={{ maxWidth: 520 }}>
+              <span className="input-group-text"><i className="bi bi-person-badge" /></span>
+              <input className="form-control text-uppercase" placeholder="e.g. DU474671" value={idText} onChange={(e) => setIdText(e.target.value)} />
+              <button className="btn btn-primary px-4" type="submit" disabled={!idText.trim()}>Open Profile</button>
+            </div>
+          </form>
+        )}
+
+        <div className="row g-4">
+          {/* Sidebar */}
+          <aside className="col-lg-4 col-xl-3">
+            {saved.length > 0 && (
+              <div className="luxe-card p-3 mb-3">
+                <div className="nav-menu-label p-0 mb-2">Saved searches</div>
+                <div className="d-flex flex-wrap gap-2">
+                  {saved.map((s) => (
+                    <span key={s.id} className="saved-chip">
+                      <button type="button" onClick={() => { setF({ ...DEFAULTS, ...s.params }); setToast(`Applied “${s.name}”`); }}>{s.name}</button>
+                      <button type="button" aria-label={`Delete ${s.name}`} onClick={() => deleteSaved(s.id)}><i className="bi bi-x" /></button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button type="button" className="btn btn-outline-danger w-100 d-lg-none mb-3" onClick={() => setFiltersOpen((o) => !o)}>
+              <i className="bi bi-sliders2 me-2" />{filtersOpen ? "Hide filters" : `Show filters${chips.length ? ` (${chips.length})` : ""}`}
+            </button>
+            <div className={`luxe-card p-4 search-sidebar ${filtersOpen ? "open" : ""}`}>{Filters}</div>
+          </aside>
+
+          {/* Results */}
+          <section className="col-lg-8 col-xl-9">
+            <div className="d-flex flex-wrap gap-2 mb-3">
+              {PRESETS.map((p) => (
+                <button key={p.key} type="button" className="sf-preset" onClick={() => set(p.apply)}>
+                  <i className={`bi ${p.icon} me-1`} />{p.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="results-bar">
+              <div>
+                <div className="results-count">
+                  {loading ? <span className="placeholder-glow"><span className="placeholder col-12" style={{ width: 120 }} /></span> : <><b>{count.toLocaleString("en-IN")}</b> {count === 1 ? "profile" : "profiles"} found</>}
+                </div>
+                {aiNote && mode === "filters" && <small className="text-gold"><i className="bi bi-stars me-1" />{aiNote}</small>}
+              </div>
+              <div className="d-flex gap-2 align-items-center">
+                <select className="form-select form-select-sm" style={{ width: 200 }} value={f.sort} onChange={(e) => set({ sort: e.target.value })} aria-label="Sort results">
+                  {SORTS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                </select>
+                <button type="button" className="btn btn-sm btn-outline-danger text-nowrap" onClick={() => setShowSave((v) => !v)}>
+                  <i className="bi bi-bookmark-plus me-1" />Save
+                </button>
               </div>
             </div>
 
-            <Tab.Container id="search-tabs" activeKey={key} onSelect={(k) => setKey(k)}>
-              <div className="tabs-container px-4">
-                <Nav variant="pills" className="tab-nav justify-content-center gap-3 flex-wrap">
-                  <Nav.Item><Nav.Link eventKey="regular" className="fw-semibold px-4 py-3 shadow-sm"><i className="bi bi-sliders me-2"></i>Regular Search</Nav.Link></Nav.Item>
-                  <Nav.Item><Nav.Link eventKey="ai" className="fw-semibold px-4 py-3 shadow-sm"><i className="bi bi-stars me-2"></i>AI Search</Nav.Link></Nav.Item>
-                  <Nav.Item><Nav.Link eventKey="advanced" className="fw-semibold px-4 py-3 shadow-sm"><i className="bi bi-fonts me-2"></i>Keyword Search</Nav.Link></Nav.Item>
-                  <Nav.Item><Nav.Link eventKey="keyword" className="fw-semibold px-4 py-3 shadow-sm"><i className="bi bi-person-badge me-2"></i>Search by ID</Nav.Link></Nav.Item>
-                </Nav>
+            {showSave && (
+              <div className="d-flex gap-2 mb-3">
+                <input className="form-control" autoFocus maxLength={60} placeholder="Name this search, e.g. Bhubaneswar doctors" value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveSearch()} />
+                <button type="button" className="btn btn-primary px-4" onClick={saveSearch} disabled={!saveName.trim()}>Save</button>
               </div>
+            )}
 
-              <Tab.Content className="p-4 p-md-5 pt-5 bg-light-subtle">
-                {/* Regular Search */}
-                <Tab.Pane eventKey="regular">
-                  <Form ref={formRef} onSubmit={onSubmit} onKeyDown={onKeyDown}>
+            {chips.length > 0 && (
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                {chips.map((c) => (
+                  <button key={c.k} type="button" className="filter-chip" onClick={() => set(c.clear)} title="Remove filter">
+                    {c.l} <i className="bi bi-x" />
+                  </button>
+                ))}
+              </div>
+            )}
 
-                    {/* Basic Preferences */}
-                    <div className="preference-section fade-in-up">
-                      <div className="section-header">
-                        <div className="icon-box"><i className="bi bi-person-heart"></i></div>
-                        <h5 className="mb-0 fw-bold text-maroon">Basic Preferences</h5>
-                      </div>
-                      <div className="row g-4">
-                        {/* Age */}
-                        <div className="col-lg-6">
-                          <label className="form-label text-muted small fw-bold text-uppercase">Age Range</label>
-                          <div className="d-flex align-items-center gap-3">
-                            <Form.Select value={ageMin} onChange={(e) => setAgeMin(e.target.value)} className="form-select form-control-lg shadow-sm border-0 bg-light">
-                              {Array.from({ length: 53 }, (_, i) => 18 + i).map(a => <option key={a} value={a}>{a}</option>)}
-                            </Form.Select>
-                            <span className="text-muted fw-bold">to</span>
-                            <Form.Select value={ageMax} onChange={(e) => setAgeMax(e.target.value)} className="form-select form-control-lg shadow-sm border-0 bg-light">
-                              {Array.from({ length: 53 }, (_, i) => 18 + i).map(a => <option key={a} value={a}>{a}</option>)}
-                            </Form.Select>
-                          </div>
-                        </div>
+            {error && <div className="alert alert-danger">{error}</div>}
 
-                        {/* Height */}
-                        <div className="col-lg-6">
-                          <label className="form-label text-muted small fw-bold text-uppercase">Height Range</label>
-                          <div className="d-flex align-items-center gap-3">
-                            <Form.Select value={heightMinLabel} onChange={(e) => setHeightMinLabel(e.target.value)} className="form-select form-control-lg shadow-sm border-0 bg-light">
-                              {heightOptions.map(h => <option key={h} value={h}>{h}</option>)}
-                            </Form.Select>
-                            <span className="text-muted fw-bold">to</span>
-                            <Form.Select value={heightMaxLabel} onChange={(e) => setHeightMaxLabel(e.target.value)} className="form-select form-control-lg shadow-sm border-0 bg-light">
-                              {heightOptions.map(h => <option key={h} value={h}>{h}</option>)}
-                            </Form.Select>
-                          </div>
-                        </div>
-
-                        {/* Marital Status */}
-                        <div className="col-12">
-                          <label className="form-label text-muted small fw-bold text-uppercase d-block mb-3">Marital Status</label>
-                          <div className="d-flex flex-wrap gap-3">
-                            {['Never Married', 'Divorced', 'Widowed', 'Awaiting Divorce'].map(ms => (
-                              <div key={ms} className="form-check custom-check-card">
-                                <input
-                                  className="form-check-input"
-                                  type="checkbox"
-                                  id={`ms-${ms}`}
-                                  checked={maritalStatuses.includes(ms)}
-                                  onChange={() => toggleStatus(ms)}
-                                />
-                                <label className="form-check-label ms-1 fw-semibold" htmlFor={`ms-${ms}`}>{ms}</label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+            {loading ? (
+              <div className="row g-3">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="col-sm-6 col-xl-4"><div className="member-card loading-skeleton" style={{ height: 420 }} /></div>
+                ))}
+              </div>
+            ) : results.length === 0 ? (
+              <div className="luxe-card text-center p-5">
+                <img src="/images/ritual-rings.svg" alt="" width={84} height={84} className="mb-3 p-3 rounded-circle" style={{ background: "var(--royal)" }} />
+                <h3 style={{ fontSize: "1.9rem" }}>No exact matches — yet</h3>
+                <p className="text-muted mb-4">Try widening the age range, removing a filter, or choosing more communities or cities.</p>
+                <button type="button" className="btn btn-primary px-4" onClick={() => setF({ ...DEFAULTS, sort: f.sort })}>Reset filters</button>
+              </div>
+            ) : (
+              <>
+                <div className="row g-3">
+                  {results.map((p) => (
+                    <div key={p.matri_id} className="col-sm-6 col-xl-4">
+                      <MemberCard p={p} onToast={setToast} />
                     </div>
-
-                    {/* Religion Section */}
-                    <div className="preference-section fade-in-up" style={{ animationDelay: '0.1s' }}>
-                      <div className="section-header">
-                        <div className="icon-box"><i className="bi bi-moon-stars"></i></div>
-                        <h5 className="mb-0 fw-bold text-maroon">Religion & Community</h5>
-                      </div>
-                      <div className="row g-4">
-                        <div className="col-md-6">
-                          <label className="form-label text-muted small fw-bold text-uppercase">Religion</label>
-                          <Form.Select size="lg" value={religionId} onChange={(e) => setReligionId(e.target.value)} className="shadow-sm border-0 bg-light">
-                            <option value="">Any Religion</option>
-                            {religions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                          </Form.Select>
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label text-muted small fw-bold text-uppercase">Caste</label>
-                          <Select
-                            instanceId="caste-select"
-                            isMulti openMenuOnFocus
-                            options={castes}
-                            value={selectedCaste}
-                            onChange={setSelectedCaste}
-                            placeholder="Select Caste(s)..."
-                            classNamePrefix="select"
-                            styles={selectStyles}
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label text-muted small fw-bold text-uppercase">Mother Tongue</label>
-                          <Form.Select size="lg" value={motherTongueId} onChange={(e) => setMotherTongueId(e.target.value)} className="shadow-sm border-0 bg-light">
-                            <option value="">Any Language</option>
-                            {languages.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                          </Form.Select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Location Section */}
-                    <div className="preference-section fade-in-up" style={{ animationDelay: '0.2s' }}>
-                      <div className="section-header">
-                        <div className="icon-box"><i className="bi bi-geo-alt"></i></div>
-                        <h5 className="mb-0 fw-bold text-maroon">Location</h5>
-                      </div>
-                      <div className="row g-4">
-                        <div className="col-md-4">
-                          <label className="form-label text-secondary small fw-bold">Country</label>
-                          <Form.Select size="lg" value={selectedCountry} onChange={(e) => setSelectedCountry(e.target.value)} className="shadow-sm border-0 bg-light">
-                            <option value="">Any Country</option>
-                            {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </Form.Select>
-                        </div>
-                        <div className="col-md-4">
-                          <label className="form-label text-secondary small fw-bold">State</label>
-                          <Select
-                            instanceId="state-select"
-                            isMulti
-                            options={states.map(s => ({ value: s.id, label: s.name }))}
-                            value={selectedStateIds.map((id) => {
-                              const s = states.find((x) => x.id === Number(id));
-                              return s ? { value: s.id, label: s.name } : null;
-                            }).filter(Boolean)}
-                            onChange={(sel) => setSelectedStateIds(sel ? sel.map(s => String(s.value)) : [])}
-                            placeholder="Select State(s)..."
-                            styles={selectStyles}
-                          />
-                        </div>
-                        <div className="col-md-4">
-                          <label className="form-label text-secondary small fw-bold">City</label>
-                          <Form.Select
-                            size="lg"
-                            value={selectedCityId}
-                            onChange={(e) => setSelectedCityId(e.target.value)}
-                            disabled={selectedStateIds.length !== 1}
-                            className="shadow-sm border-0 bg-light"
-                          >
-                            <option value="">
-                              {selectedStateIds.length === 1 ? "-- Select City --" : "Select 1 State First"}
-                            </option>
-                            {cities.map(ci => <option key={ci.id} value={ci.id}>{ci.name}</option>)}
-                          </Form.Select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Education */}
-                    <div className="preference-section fade-in-up" style={{ animationDelay: '0.3s' }}>
-                      <div className="section-header">
-                        <div className="icon-box"><i className="bi bi-mortarboard"></i></div>
-                        <h5 className="mb-0 fw-bold text-maroon">Education & Career</h5>
-                      </div>
-                      <div>
-                        <label className="form-label text-muted small fw-bold text-uppercase">Education Level</label>
-                        <Select
-                          instanceId="education-select"
-                          isMulti={false}
-                          options={educations}
-                          value={selectedEducation}
-                          onChange={setSelectedEducation}
-                          placeholder="Any Education"
-                          styles={selectStyles}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="text-center mt-5">
-                      <Button variant="primary" type="submit" size="lg" className="fw-bold px-5 py-3 rounded-pill text-uppercase shadow-lg w-100 w-md-auto hover-lift">
-                        <i className="bi bi-search me-2"></i> Find Matches
-                      </Button>
-                    </div>
-                  </Form>
-                </Tab.Pane>
-
-                {/* AI Search */}
-                <Tab.Pane eventKey="ai">
-                  <div className="fade-in-up">
-                    <div className="bg-white p-5 rounded-4 shadow-sm mb-4">
-                      <div className="d-flex align-items-center gap-3 mb-4">
-                        <div className="d-inline-flex p-3 rounded-circle bg-gradient text-white" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-                          <i className="bi bi-stars fs-3"></i>
-                        </div>
-                        <div>
-                          <h3 className="fw-bold text-maroon mb-1">AI-Powered Search</h3>
-                          <p className="text-muted mb-0">Describe what you're looking for in plain English</p>
-                        </div>
-                      </div>
-
-                      <div className="mb-4">
-                        <label className="form-label fw-semibold text-muted small text-uppercase mb-3">Enter Your Search Query</label>
-                        <div className="d-flex gap-2">
-                          <input
-                            className="form-control form-control-lg shadow-sm border-0 bg-light"
-                            value={aiText}
-                            onChange={(e) => setAiText(e.target.value)}
-                            placeholder='Example: "Hindu Brahmin, Bhubaneswar, age 24-28"'
-                            onKeyDown={(e) => { if (e.key === 'Enter') runAiSearch(); }}
-                          />
-                          <button
-                            className={`btn btn-lg px-5 fw-bold shadow-sm position-relative overflow-hidden ${aiLoading ? 'ai-search-shimmer' : ''}`}
-                            onClick={runAiSearch}
-                            disabled={aiLoading}
-                            style={{
-                              background: aiLoading
-                                ? 'linear-gradient(90deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #667eea 100%)'
-                                : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                              backgroundSize: aiLoading ? '200% 100%' : '100% 100%',
-                              color: 'white',
-                              border: 'none',
-                              minWidth: 150,
-                              transition: 'all 0.3s ease'
-                            }}
-                          >
-                            {aiLoading ? (
-                              <>
-                                <span className="spinner-border spinner-border-sm me-2"></span>
-                                Searching...
-                              </>
-                            ) : (
-                              <>
-                                <i className="bi bi-search me-2"></i>
-                                AI Search
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* ✨ Shimmer Animation Styles */}
-                      <div className="alert alert-info border-0 shadow-sm">
-                        <div className="fw-bold mb-2"><i className="bi bi-lightbulb me-2"></i>Example Queries (Now with Names!):</div>
-                        <div className="d-flex flex-wrap gap-2">
-                          <span className="badge bg-light text-dark px-3 py-2" style={{ cursor: 'pointer' }} onClick={() => setAiText('Hindu Brahmin, Bhubaneswar, age 24-28')}>Hindu Brahmin, Bhubaneswar, 24-28</span>
-                          <span className="badge bg-light text-dark px-3 py-2" style={{ cursor: 'pointer' }} onClick={() => setAiText('Never married, age 25 to 30, 5ft6 to 5ft8')}>Never married, 25-30, 5ft6-5ft8</span>
-                          <span className="badge bg-light text-dark px-3 py-2" style={{ cursor: 'pointer' }} onClick={() => setAiText('Christian, Delhi, height 5ft4 to 5ft7')}>Christian, Delhi, 5ft4-5ft7</span>
-                          <span className="badge bg-light text-dark px-3 py-2" style={{ cursor: 'pointer' }} onClick={() => setAiText('Muslim, Mumbai, age 22-26')}>Muslim, Mumbai, 22-26</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Error Display */}
-                    {aiError && (
-                      <div className="alert alert-danger shadow-sm border-0 rounded-4 mb-4">
-                        <i className="bi bi-exclamation-triangle me-2"></i>
-                        {aiError}
-                      </div>
-                    )}
-
-                    {/* Results Display */}
-                    <div className="mt-4">
-                      {aiResults.length === 0 && !aiLoading && !aiError && (
-                        <div className="text-center py-5 bg-white rounded-4 shadow-sm">
-                          <i className="bi bi-search text-muted" style={{ fontSize: '3rem' }}></i>
-                          <p className="text-muted mt-3 mb-0">No results yet. Try searching above!</p>
-                        </div>
-                      )}
-
-                      {aiResults.length > 0 && (
-                        <>
-                          <div className="d-flex justify-content-between align-items-center mb-3">
-                            <h5 className="fw-bold text-maroon mb-0">
-                              <i className="bi bi-check-circle-fill text-success me-2"></i>
-                              Found {aiResults.length} Matches
-                            </h5>
-                          </div>
-                          <div className="row g-4">
-                            {aiResults.map((p) => (
-                              <div key={p.id} className="col-md-6 col-lg-4">
-                                <div className="card h-100 border-0 shadow-sm hover-lift" style={{ borderRadius: 16, overflow: 'hidden', transition: 'all 0.3s ease' }}>
-                                  <div className="card-body p-4">
-                                    <div className="d-flex align-items-start mb-3">
-                                      <div className="flex-shrink-0 me-3">
-                                        <img
-                                          src={p.photo_url || '/uploads/default.jpg'}
-                                          alt={p.first_name}
-                                          className="rounded-circle shadow-sm"
-                                          width={70}
-                                          height={70}
-                                          style={{ objectFit: 'cover' }}
-                                          onError={(e) => e.target.src = '/uploads/default.jpg'}
-                                        />
-                                      </div>
-                                      <div className="flex-grow-1">
-                                        <h6 className="fw-bold text-maroon mb-1">
-                                          {p.first_name} {p.last_name || ""}
-                                        </h6>
-                                        <p className="small text-muted mb-0">{p.matri_id}</p>
-                                      </div>
-                                    </div>
-
-                                    <div className="mb-3">
-                                      <div className="row g-2 small">
-                                        <div className="col-6">
-                                          <div className="text-muted">Age</div>
-                                          <div className="fw-semibold">{p.age || 'N/A'}</div>
-                                        </div>
-                                        <div className="col-6">
-                                          <div className="text-muted">Gender</div>
-                                          <div className="fw-semibold">{p.gender}</div>
-                                        </div>
-                                        <div className="col-6">
-                                          <div className="text-muted">Height</div>
-                                          <div className="fw-semibold">{p.height_cm ? `${p.height_cm} cm` : 'N/A'}</div>
-                                        </div>
-                                        <div className="col-6">
-                                          <div className="text-muted">Status</div>
-                                          <div className="fw-semibold" style={{ fontSize: '0.75rem' }}>{p.marital_status || 'N/A'}</div>
-                                        </div>
-                                        {p.religion_name && (
-                                          <div className="col-12">
-                                            <div className="text-muted">Religion</div>
-                                            <div className="fw-semibold">{p.religion_name}</div>
-                                          </div>
-                                        )}
-                                        {p.city_name && (
-                                          <div className="col-12">
-                                            <div className="text-muted">Location</div>
-                                            <div className="fw-semibold">{p.city_name}, {p.state_name || p.country_name}</div>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    <a
-                                      href={`/matrimoney/profile-details/${p.matri_id}`}
-                                      className="btn btn-outline-primary btn-sm w-100 rounded-pill fw-semibold"
-                                    >
-                                      View Profile <i className="bi bi-arrow-right ms-1"></i>
-                                    </a>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                  ))}
+                </div>
+                {hasMore && (
+                  <div className="text-center mt-4">
+                    <button type="button" className="btn btn-outline-danger px-5" onClick={() => runSearch(f, page + 1)} disabled={loadingMore}>
+                      {loadingMore ? <><span className="spinner-border spinner-border-sm me-2" />Loading…</> : `Show more (${count - results.length} remaining)`}
+                    </button>
                   </div>
-                </Tab.Pane>
-
-                {/* Keyword Search */}
-                <Tab.Pane eventKey="advanced">
-                  <div className="d-flex flex-column align-items-center justify-content-center py-5 fade-in-up">
-                    <div className="bg-white p-5 rounded-4 shadow-sm text-center" style={{ maxWidth: 700, width: '100%' }}>
-                      <div className="d-inline-flex p-3 rounded-circle bg-primary bg-opacity-10 text-primary mb-4">
-                        <i className="bi bi-fonts fs-1"></i>
-                      </div>
-                      <h3 className="fw-bold text-maroon mb-2">Search by Name</h3>
-                      <p className="text-muted mb-4 mx-auto" style={{ maxWidth: 500 }}>Looking for someone specifics? Enter their name below to find their profile.</p>
-                      <KeywordSearchPane />
-                    </div>
-                  </div>
-                </Tab.Pane>
-
-                {/* Search by ID */}
-                <Tab.Pane eventKey="keyword">
-                  <Form action="/matrimoney/results" method="GET">
-                    <div className="d-flex flex-column align-items-center justify-content-center py-5 fade-in-up">
-                      <div className="bg-white p-5 rounded-4 shadow-sm text-center" style={{ maxWidth: 700, width: '100%' }}>
-                        <div className="d-inline-flex p-3 rounded-circle bg-primary bg-opacity-10 text-primary mb-4">
-                          <i className="bi bi-upc-scan fs-1"></i>
-                        </div>
-                        <h3 className="text-maroon fw-bold mb-2">Search by ID</h3>
-                        <p className="text-muted mb-4">If you know the Profile ID of the member, simply enter it below.</p>
-                        <div className="d-flex justify-content-center gap-2 mx-auto" style={{ maxWidth: 500 }}>
-                          <Form.Control type="text" name="matriId" placeholder="Enter Profile ID (e.g. DU12345)" required className="form-control-lg shadow-sm border-1" style={{ borderRadius: '50px 0 0 50px' }} />
-                          <Button variant="primary" type="submit" size="lg" className="px-4 fw-bold shadow-sm" style={{ borderRadius: '0 50px 50px 0' }}>Search</Button>
-                        </div>
-                      </div>
-                    </div>
-                  </Form>
-                </Tab.Pane>
-              </Tab.Content>
-            </Tab.Container>
-          </div>
+                )}
+              </>
+            )}
+          </section>
         </div>
-
-        <style jsx global>{`
-        .search-page-wrapper {
-            background-color: #f0f2f5;
-            min-height: 100vh;
-            padding-top: 80px;
-            background-image: radial-gradient(#e33183 0.5px, transparent 0.5px), radial-gradient(#e33183 0.5px, #f0f2f5 0.5px);
-            background-size: 20px 20px;
-            background-position: 0 0, 10px 10px;
-        }
-        .search-card { 
-            background: #fff; 
-            border-radius: 24px; 
-            overflow: hidden; 
-            box-shadow: 0 20px 60px rgba(0,0,0,0.08); 
-            border: 1px solid rgba(0,0,0,0.02);
-        }
-        .search-header {
-            background: linear-gradient(135deg, var(--brand-maroon) 0%, #600018 100%);
-        }
-        .bg-pattern {
-            background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='3'/%3E%3Ccircle cx='13' cy='13' r='3'/%3E%3C/g%3E%3C/svg%3E");
-        }
-        .tabs-container {
-            transform: translateY(-50%);
-            margin-bottom: -30px;
-            position: relative;
-            z-index: 10;
-        }
-        .tab-nav .nav-link { 
-            background: #fff;
-            color: #555;
-            border-radius: 50px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-            border: 1px solid rgba(0,0,0,0.05);
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            min-width: 180px;
-            text-align: center;
-        }
-        .tab-nav .nav-link:hover {
-            transform: translateY(-5px);
-             color: var(--brand-primary);
-        }
-        .tab-nav .nav-link.active { 
-            background: var(--brand-primary); 
-            color: #fff !important; 
-            box-shadow: 0 10px 30px rgba(227, 49, 131, 0.4);
-        }
-        
-        .preference-section {
-            background: white;
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 30px;
-            border: 1px solid #f1f1f1;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
-            transition: transform 0.3s ease;
-        }
-        .preference-section:hover {
-             transform: translateY(-2px);
-             box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-        }
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 25px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #f8f9fa;
-        }
-        .icon-box {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            background: var(--brand-primary);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
-            box-shadow: 0 4px 10px rgba(227, 49, 131, 0.3);
-        }
-        
-        .custom-check-card {
-            background: #f8f9fa;
-            border-radius: 30px;
-            padding: 8px 16px 8px 8px;
-            display: flex;
-            align-items: center;
-            border: 1px solid transparent;
-            transition: all 0.2s;
-        }
-        .custom-check-card:hover {
-            background: white;
-            border-color: #ddd;
-             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        .custom-check-card .form-check-input {
-            width: 1.5em;
-            height: 1.5em;
-            margin-top: 0;
-            margin-right: 10px;
-        }
-        .custom-check-card .form-check-input:checked + label {
-            color: var(--brand-primary);
-        }
-
-        .hover-lift:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 30px rgba(227, 49, 131, 0.4) !important;
-        }
-        
-        .text-maroon { color: var(--brand-maroon, #800020) !important; }
-        
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .fade-in-up {
-            animation: fadeInUp 0.5s ease-out forwards;
-        }
-
-        /* Form Styling */
-        .form-control-lg, .form-select-lg { 
-            border-radius: 12px;
-            font-size: 1rem;
-            padding: 0.75rem 1rem;
-            border: 1px solid #e2e8f0;
-        }
-        .form-control:focus, .form-select:focus {
-            border-color: var(--brand-primary);
-            box-shadow: 0 0 0 4px rgba(227, 49, 131, 0.1);
-        }
-        
-        input::placeholder { font-size: 0.95rem; color: #a0aec0; }
-        
-        /* ✨ AI Search Shimmer Animation */
-        @keyframes shimmer {
-          0% {
-            background-position: 200% 0;
-          }
-          100% {
-            background-position: -200% 0;
-          }
-        }
-        
-        .ai-search-shimmer {
-          animation: shimmer 3s linear infinite;
-        }
-        
-        .ai-search-shimmer:before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: -100%;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(
-            90deg,
-            transparent,
-            rgba(255, 255, 255, 0.3),
-            transparent
-          );
-          animation: shimmer-overlay 2s linear infinite;
-        }
-        
-        @keyframes shimmer-overlay {
-          0% {
-            left: -100%;
-          }
-          100% {
-            left: 200%;
-          }
-        }
-      `}</style>
       </div>
-    </>
+
+      {toast && <div className="mm-toast" role="status"><i className="bi bi-check-circle me-2" />{toast}</div>}
+    </div>
   );
 }
 
-/* ---------- Keyword Search Pane (name-only) ---------- */
-function KeywordSearchPane() {
-  const router = useRouter();
-  const [q, setQ] = useState("");
-
-  const onSubmit = (e) => {
-    e.preventDefault();
-    const value = q.trim();
-    if (!value) return;
-
-    // ✅ push to the dedicated name-results page
-    router.push(`/matrimoney/name-results?name=${encodeURIComponent(value)}`);
-  };
-
+export default function SearchPageWrapper() {
   return (
-    <form onSubmit={onSubmit} className="w-100" style={{ maxWidth: 600 }}>
-      <div className="input-group input-group-lg shadow-sm">
-        <input
-          className="form-control border-end-0"
-          type="text"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Type a name (e.g., Priyanka)…"
-          required
-          style={{ borderTopLeftRadius: 50, borderBottomLeftRadius: 50, paddingLeft: 25 }}
-        />
-        <button className="btn btn-primary px-4 fw-bold" type="submit" style={{ borderTopRightRadius: 50, borderBottomRightRadius: 50 }}>
-          <i className="bi bi-search me-2"></i> Search
-        </button>
-      </div>
-    </form>
+    <Suspense fallback={<div className="page-surface" style={{ minHeight: "80vh" }} />}>
+      <SearchPage />
+    </Suspense>
   );
 }

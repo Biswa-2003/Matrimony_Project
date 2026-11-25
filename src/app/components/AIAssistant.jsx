@@ -1,317 +1,273 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import Image from 'next/image';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { getSession } from '@/lib/session-client';
 import './AIAssistant.css';
 
+const STORE_KEY = 'mm:assistant:v2';
+const GREETED_KEY = 'mm:assistant:greeted';
+
+const GUEST_SUGGESTIONS = ['How do I register?', 'What are your plans?', 'Is my data private?', 'How do interests work?'];
+const MEMBER_SUGGESTIONS = ['Find Hindu brides 24 to 30', 'What is my plan?', 'Who viewed my profile?', 'How strong is my profile?', 'My interests'];
+const FOLLOW_UPS = ['Find matches for me', 'Plans & prices', 'Safety tips', 'Talk to support'];
+
+const avatarFor = (g) => (String(g).toLowerCase() === 'male' ? '/images/avatar-male.svg' : '/images/avatar-female.svg');
+
+/** Minimal, safe formatter: escapes HTML, then supports **bold**, *italic*, bullet/numbered lines. */
+function RichText({ text }) {
+  const lines = String(text || '').split('\n');
+  const inline = (s, key) => {
+    const parts = [];
+    const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    let last = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      if (m.index > last) parts.push(s.slice(last, m.index));
+      const t = m[0];
+      parts.push(t.startsWith('**') ? <strong key={`${key}-${m.index}`}>{t.slice(2, -2)}</strong> : <em key={`${key}-${m.index}`}>{t.slice(1, -1)}</em>);
+      last = m.index + t.length;
+    }
+    if (last < s.length) parts.push(s.slice(last));
+    return parts;
+  };
+  return (
+    <>
+      {lines.map((line, i) => {
+        if (!line.trim()) return <div key={i} style={{ height: 6 }} />;
+        const bullet = line.match(/^\s*[•\-]\s+(.*)$/);
+        const num = line.match(/^\s*(\d+)\.\s+(.*)$/);
+        if (bullet) return <div key={i} className="ai-li"><span>•</span><span>{inline(bullet[1], i)}</span></div>;
+        if (num) return <div key={i} className="ai-li"><span>{num[1]}.</span><span>{inline(num[2], i)}</span></div>;
+        return <div key={i}>{inline(line, i)}</div>;
+      })}
+    </>
+  );
+}
+
 export default function AIAssistant() {
-    const pathname = usePathname();
-    if (pathname?.startsWith('/admin')) return null;
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [name, setName] = useState('');
+  const [greeting, setGreeting] = useState(false);
+  const listRef = useRef(null);
+  const inputRef = useRef(null);
 
-    const [isOpen, setIsOpen] = useState(false);
-    const [messages, setMessages] = useState([
-        {
-            role: 'assistant',
-            content: "Hi! I'm your matrimony assistant. Try asking:\n• 'Find profiles named Biswajit'\n• 'Show profiles starting with P'\n• 'How many total profiles?'"
-        }
-    ]);
-    const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [conversationHistory, setConversationHistory] = useState([]);
-    const [showGreeting, setShowGreeting] = useState(false);
-    const [greetingDismissed, setGreetingDismissed] = useState(false);
-    const messagesEndRef = useRef(null);
+  // restore this session's conversation + who is chatting
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || '[]');
+      if (Array.isArray(saved)) setMessages(saved);
+    } catch {}
+    getSession().then((s) => {
+      setLoggedIn(Boolean(s));
+      setName((s?.name || '').split(' ')[0]);
+    });
+  }, []);
 
-    // Show greeting after a delay when component mounts
-    useEffect(() => {
-        const greetingTimer = setTimeout(() => {
-            if (!isOpen && !greetingDismissed) {
-                setShowGreeting(true);
-            }
-        }, 2000); // Show greeting after 2 seconds
+  useEffect(() => {
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(messages.slice(-30))); } catch {}
+  }, [messages]);
 
-        return () => clearTimeout(greetingTimer);
-    }, [isOpen, greetingDismissed]);
+  // gentle greeting bubble — once per session, never over a sign-in / reset form
+  useEffect(() => {
+    if (/^\/matrimoney\/(login|register|forgot|reset-password)/.test(pathname || '')) return;
+    if (window.innerWidth < 576) return; // on phones the bubble would cover the page; the launcher is enough
+    let seen = true;
+    try { seen = sessionStorage.getItem(GREETED_KEY) === '1'; } catch {}
+    if (seen) return;
+    const t = setTimeout(() => setGreeting(true), 4000);
+    const h = setTimeout(() => setGreeting(false), 16000);
+    return () => { clearTimeout(t); clearTimeout(h); setGreeting(false); };
+  }, [pathname]);
 
-    // Auto-hide greeting after some time
-    useEffect(() => {
-        if (showGreeting && !isOpen) {
-            const hideTimer = setTimeout(() => {
-                setShowGreeting(false);
-            }, 10000); // Hide after 10 seconds if not interacted
+  const markGreeted = () => {
+    setGreeting(false);
+    try { sessionStorage.setItem(GREETED_KEY, '1'); } catch {}
+  };
 
-            return () => clearTimeout(hideTimer);
-        }
-    }, [showGreeting, isOpen]);
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+  }, [messages, loading, open]);
 
-    const handleOpenChat = () => {
-        setIsOpen(true);
-        setShowGreeting(false);
-        setGreetingDismissed(true);
-    };
+  useEffect(() => {
+    if (!open) return;
+    setTimeout(() => inputRef.current?.focus(), 150);
+    const onKey = (e) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
 
-    const dismissGreeting = () => {
-        setShowGreeting(false);
-        setGreetingDismissed(true);
-    };
+  const send = useCallback(async (text) => {
+    const message = String(text ?? input).trim();
+    if (!message || loading) return;
+    setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+    const userMsg = { role: 'user', content: message, at: Date.now() };
+    const history = messages.slice(-8).map(({ role, content }) => ({ role, content }));
+    setMessages((m) => [...m, userMsg]);
+    setLoading(true);
+    try {
+      const r = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setMessages((m) => [...m, {
+        role: 'assistant',
+        content: j.reply || 'Sorry, I could not answer that right now.',
+        cards: j.cards || [],
+        actions: j.actions || [],
+        at: Date.now(),
+      }]);
+      if (typeof j.loggedIn === 'boolean') setLoggedIn(j.loggedIn);
+    } catch {
+      setMessages((m) => [...m, { role: 'assistant', content: 'I could not reach the server. Please check your connection and try again.', at: Date.now() }]);
+    } finally {
+      setLoading(false);
+    }
+  }, [input, loading, messages]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
+  const clear = () => {
+    setMessages([]);
+    try { sessionStorage.removeItem(STORE_KEY); } catch {}
+  };
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+  // after all hooks (rules of hooks). Hidden in admin, and in member chat where it would cover the composer.
+  if (pathname?.startsWith('/admin') || pathname?.startsWith('/dashboard/messages')) return null;
 
-    const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+  const suggestions = loggedIn ? MEMBER_SUGGESTIONS : GUEST_SUGGESTIONS;
+  const lastIsAssistant = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
+  const time = (t) => (t ? new Date(t).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '');
 
-        const userMessage = input.trim();
-        setInput('');
+  return (
+    <>
+      {greeting && !open && (
+        <div className="ai-greet" role="status">
+          <button type="button" className="ai-greet-close" onClick={markGreeted} aria-label="Dismiss"><i className="bi bi-x" /></button>
+          <div className="ai-greet-title">Namaste{name ? `, ${name}` : ''} 🙏</div>
+          <div className="ai-greet-text">Need help finding a match or understanding plans? Ask me anything.</div>
+          <button type="button" className="ai-greet-cta" onClick={() => { markGreeted(); setOpen(true); }}>Chat with assistant</button>
+        </div>
+      )}
 
-        // Add user message
-        setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-        setIsLoading(true);
+      <button
+        type="button"
+        className={`ai-launcher ${open ? 'is-open' : ''}`}
+        onClick={() => { markGreeted(); setOpen((o) => !o); }}
+        aria-label={open ? 'Close assistant' : 'Open MatriMoney assistant'}
+        aria-expanded={open}
+      >
+        <i className={`bi ${open ? 'bi-x-lg' : 'bi-chat-heart-fill'}`} />
+        {!open && <span className="ai-launcher-badge">AI</span>}
+      </button>
 
-        try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: userMessage,
-                    conversationHistory
-                }),
-            });
+      {open && (
+        <section className="ai-panel" role="dialog" aria-label="MatriMoney assistant">
+          <header className="ai-head">
+            <span className="ai-head-avatar"><span className="brand-mark" aria-hidden="true" /></span>
+            <div className="flex-grow-1">
+              <div className="ai-head-title">MatriMoney Assistant</div>
+              <div className="ai-head-status"><span className="dot" />Online · replies instantly</div>
+            </div>
+            {messages.length > 0 && (
+              <button type="button" className="ai-icon-btn" onClick={clear} title="Clear conversation" aria-label="Clear conversation"><i className="bi bi-arrow-counterclockwise" /></button>
+            )}
+            <button type="button" className="ai-icon-btn" onClick={() => setOpen(false)} title="Close" aria-label="Close"><i className="bi bi-x-lg" /></button>
+          </header>
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-
-            if (data && data.reply) {
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: data.reply,
-                    cards: data.cards // ✅ Profile cards from AI search
-                }]);
-
-                // Update conversation history
-                if (data.conversationHistory) {
-                    setConversationHistory(data.conversationHistory);
-                }
-            } else {
-                console.error('Invalid response:', data);
-                throw new Error('No reply in response');
-            }
-        } catch (error) {
-            console.error('Chat error:', error);
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: "I'm having trouble connecting right now. Please try again in a moment! 🙏"
-            }]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    };
-
-    const clearChat = () => {
-        setMessages([{
-            role: 'assistant',
-            content: "Hi! I'm your matrimony assistant. How can I help you today? 😊"
-        }]);
-        setConversationHistory([]);
-    };
-
-    return (
-        <>
-            {/* Proactive Greeting Bubble */}
-            {!isOpen && showGreeting && (
-                <div
-                    className="ai-greeting-bubble"
-                    style={{
-                        position: 'fixed',
-                        bottom: '90px',
-                        right: '20px',
-                        width: '280px',
-                        background: 'white',
-                        borderRadius: '16px',
-                        padding: '16px',
-                        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                        zIndex: 9999,
-                        animation: 'slideUp 0.5s ease-out',
-                    }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'start', gap: '8px' }}>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 'bold', color: '#E33183', marginBottom: '4px' }}>
-                                👋 Hi there!
-                            </div>
-                            <div style={{ fontSize: '14px', color: '#6b7280' }}>
-                                How can I help you today? Feel free to ask me anything!
-                            </div>
-                        </div>
-                        <button
-                            onClick={dismissGreeting}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                fontSize: '20px',
-                                color: '#9ca3af',
-                                cursor: 'pointer',
-                                padding: 0,
-                                lineHeight: 1,
-                            }}
-                        >
-                            ×
-                        </button>
-                    </div>
-                    {/* Pointer arrow */}
-                    <div
-                        style={{
-                            position: 'absolute',
-                            bottom: '-8px',
-                            right: '25px',
-                            width: 0,
-                            height: 0,
-                            borderLeft: '8px solid transparent',
-                            borderRight: '8px solid transparent',
-                            borderTop: '8px solid white',
-                        }}
-                    />
+          <div className="ai-body" ref={listRef} aria-live="polite">
+            {messages.length === 0 && (
+              <div className="ai-welcome">
+                <img src="/images/ritual-rings.svg" alt="" width={64} height={64} className="ai-welcome-icon" />
+                <h3>Namaste{name ? `, ${name}` : ''}!</h3>
+                <p>I can find matches for you, explain plans, and help with your profile, interests, privacy and safety.</p>
+                <div className="ai-chips">
+                  {suggestions.map((s) => <button key={s} type="button" className="ai-chip" onClick={() => send(s)}>{s}</button>)}
                 </div>
+              </div>
             )}
 
-            {/* Floating Button */}
-            <button
-                className="ai-assistant-toggle"
-                onClick={() => isOpen ? setIsOpen(false) : handleOpenChat()}
-                aria-label="Toggle AI Assistant"
-            >
-                {isOpen ? (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                ) : (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2C6.48 2 2 6.48 2 12c0 1.54.36 3 .97 4.29L2 22l5.71-.97C9 21.64 10.46 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z" fill="currentColor" />
-                        <circle cx="8" cy="12" r="1.5" fill="white" />
-                        <circle cx="12" cy="12" r="1.5" fill="white" />
-                        <circle cx="16" cy="12" r="1.5" fill="white" />
-                    </svg>
-                )}
-                {!isOpen && <span className="ai-assistant-badge">AI</span>}
+            {messages.map((m, i) => (
+              <div key={i} className={`ai-msg ${m.role}`}>
+                {m.role === 'assistant' && <span className="ai-msg-avatar"><span className="brand-mark" aria-hidden="true" /></span>}
+                <div className="ai-msg-col">
+                  <div className="ai-bubble"><RichText text={m.content} /></div>
+
+                  {m.cards?.length > 0 && (
+                    <div className="ai-cards">
+                      {m.cards.map((c) => (
+                        <Link key={c.matri_id} href={`/matrimoney/profile-details/${c.matri_id}`} className="ai-card">
+                          <img src={c.photo || avatarFor(c.gender)} alt={c.name}
+                            className={c.photo ? '' : 'is-avatar'}
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = avatarFor(c.gender); e.currentTarget.className = 'is-avatar'; }} />
+                          <div className="ai-card-body">
+                            <div className="ai-card-name">{c.name}{c.verified && <i className="bi bi-patch-check-fill ms-1" />}</div>
+                            <div className="ai-card-meta">{[c.age && `${c.age} yrs`, c.city].filter(Boolean).join(' · ') || c.matri_id}</div>
+                            <div className="ai-card-meta">{[c.religion, c.caste].filter(Boolean).join(' · ')}</div>
+                            <span className="ai-card-cta">View profile →</span>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+
+                  {m.actions?.length > 0 && (
+                    <div className="ai-actions">
+                      {m.actions.map((a) => (
+                        <Link key={a.href + a.label} href={a.href} className="ai-action" onClick={() => setOpen(window.innerWidth >= 576)}>
+                          {a.label} <i className="bi bi-arrow-right" />
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <div className="ai-time">{time(m.at)}</div>
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="ai-msg assistant">
+                <span className="ai-msg-avatar"><span className="brand-mark" aria-hidden="true" /></span>
+                <div className="ai-bubble ai-typing" aria-label="Assistant is typing"><span /><span /><span /></div>
+              </div>
+            )}
+
+            {lastIsAssistant && !loading && (
+              <div className="ai-chips ai-followups">
+                {FOLLOW_UPS.map((s) => <button key={s} type="button" className="ai-chip" onClick={() => send(s === 'Talk to support' ? 'contact support' : s === 'Safety tips' ? 'safety' : s)}>{s}</button>)}
+              </div>
+            )}
+          </div>
+
+          <form className="ai-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
+            <textarea
+              ref={inputRef}
+              rows={1}
+              maxLength={500}
+              value={input}
+              placeholder={loggedIn ? 'Try “Brides in Bhubaneswar, 24–28”' : 'Ask about registration, plans, safety…'}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 110)}px`;
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              aria-label="Message the assistant"
+            />
+            <button type="submit" className="ai-send" disabled={!input.trim() || loading} aria-label="Send">
+              <i className="bi bi-send-fill" />
             </button>
-
-            {/* Chat Window */}
-            {isOpen && (
-                <div className="ai-assistant-window">
-                    {/* Header */}
-                    <div className="ai-assistant-header">
-                        <div className="ai-assistant-header-content">
-                            <div className="ai-assistant-avatar">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                    <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z" fill="currentColor" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3>MatriMoney Assistant</h3>
-                                <p>Powered by AI</p>
-                            </div>
-                        </div>
-                        <button onClick={clearChat} className="ai-clear-btn" title="Clear chat">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    {/* Messages */}
-                    <div className="ai-assistant-messages">
-                        {messages.map((msg, idx) => (
-                            <div key={idx} className={`ai-message ai-message-${msg.role}`}>
-                                <div className="ai-message-content">
-                                    {msg.content}
-                                </div>
-
-                                {/* ✅ Profile Cards - HORIZONTAL SINGLE LINE */}
-                                {msg.cards && msg.cards.length > 0 && (
-                                    <div className="ai-profile-cards mt-2">
-                                        {msg.cards.map((card, cidx) => (
-                                            <div key={cidx} className="ai-profile-card mb-2">
-                                                <div className="d-flex align-items-center gap-2 p-2">
-                                                    <Image
-                                                        src={card.photo_url || '/uploads/default.jpg'}
-                                                        alt={card.first_name}
-                                                        width={38}
-                                                        height={38}
-                                                        className="rounded-circle flex-shrink-0"
-                                                        style={{ objectFit: 'cover' }}
-                                                        onError={(e) => e.target.src = '/uploads/default.jpg'}
-                                                    />
-                                                    <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                                                        <div className="fw-bold text-truncate" style={{ fontSize: '12px', color: '#E33183' }}>
-                                                            {card.first_name} {card.last_name}
-                                                        </div>
-                                                        <div className="text-muted text-truncate" style={{ fontSize: '10px' }}>
-                                                            {card.age}y • {card.gender.charAt(0)} • {card.city_name || 'N/A'}
-                                                        </div>
-                                                    </div>
-                                                    <Link
-                                                        href={`/matrimoney/profile-details/${card.matri_id}`}
-                                                        className="btn btn-sm btn-primary flex-shrink-0"
-                                                        style={{ fontSize: '10px', padding: '4px 10px', borderRadius: '12px', whiteSpace: 'nowrap' }}
-                                                    >
-                                                        View →
-                                                    </Link>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                        {isLoading && (
-                            <div className="ai-message ai-message-assistant">
-                                <div className="ai-message-content ai-typing">
-                                    <span></span><span></span><span></span>
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Input */}
-                    <div className="ai-assistant-input">
-                        <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={handleKeyPress}
-                            placeholder="Ask me: Find profiles named..."
-                            rows="1"
-                            disabled={isLoading}
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || isLoading}
-                            className="ai-send-btn"
-                        >
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            )}
-        </>
-    );
+          </form>
+          <div className="ai-foot">Answers use MatriMoney’s live data. For account issues, <Link href="/matrimoney/contactus">contact support</Link>.</div>
+        </section>
+      )}
+    </>
+  );
 }

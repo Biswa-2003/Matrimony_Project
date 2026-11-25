@@ -1,7 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-export function useShortlist({ limit = 20, offset = 0 } = {}) {
+/**
+ * My real shortlist (from /api/shortlist). Previously this showed "interests I sent" instead.
+ * Items keep the field names the Shortlist page already uses (id, photo_url, age_years, …).
+ */
+export function useShortlist({ limit = 50, offset = 0 } = {}) {
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({ total: 0, limit, offset, page: 1 });
   const [loading, setLoading] = useState(true);
@@ -9,64 +13,51 @@ export function useShortlist({ limit = 20, offset = 0 } = {}) {
 
   useEffect(() => {
     let alive = true;
-
-    async function load() {
+    (async () => {
       try {
         setLoading(true);
         setError("");
-
-        const page = Math.floor(offset / limit) + 1;
-        const qs = new URLSearchParams({
-          type: "sent",           // "my shortlist" = interests I sent
-          page: String(page),
-          limit: String(limit),
-        });
-
-        const res = await fetch(`/api/interest?${qs.toString()}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (!res.ok) {
-          if (!alive) return;
-          setError(`Failed to load shortlist (${res.status})`);
-          setItems([]);
-          setMeta((m) => ({ ...m, total: 0 }));
-          setLoading(false);
-          return;
-        }
-
+        const res = await fetch("/api/shortlist", { credentials: "include", cache: "no-store" });
         const data = await res.json().catch(() => ({}));
         if (!alive) return;
-
-        const rows = data.results || [];
-
-        const mapped = rows.map((row) => ({
-          ...row, // pass through all enriched fields (full_name, photo_url, etc.)
-          // ensures we have a fallback for critical fields if needed, but API should provide them
+        if (!res.ok) throw new Error(data.error || `Failed to load shortlist (${res.status})`);
+        const rows = (data.results || []).slice(offset, offset + limit).map((r) => ({
+          ...r,
+          id: r.matri_id,
+          photo_url: r.photo,
+          age_years: r.age,
+          status: "shortlisted",
         }));
-
-        setItems(mapped);
-        setMeta({
-          total: data.total ?? rows.length,
-          limit,
-          offset,
-          page: data.page ?? page,
-        });
+        setItems(rows);
+        setMeta({ total: data.total ?? rows.length, limit, offset, page: Math.floor(offset / limit) + 1 });
       } catch (e) {
-        if (!alive) return;
-        setError("Failed to load shortlist");
-        setItems([]);
+        if (alive) {
+          setError(e.message || "Failed to load shortlist");
+          setItems([]);
+        }
       } finally {
         if (alive) setLoading(false);
       }
-    }
-
-    load();
+    })();
     return () => {
       alive = false;
     };
   }, [limit, offset]);
 
-  return { items, meta, loading, error };
+  /** Remove a member from the shortlist (optimistic). */
+  const remove = useCallback(async (matriId) => {
+    let snapshot;
+    setItems((prev) => {
+      snapshot = prev;
+      return prev.filter((it) => it.matri_id !== matriId);
+    });
+    setMeta((m) => ({ ...m, total: Math.max(0, m.total - 1) }));
+    const r = await fetch(`/api/shortlist?matri_id=${encodeURIComponent(matriId)}`, { method: "DELETE" }).catch(() => null);
+    if (!r || !r.ok) {
+      setItems(snapshot);
+      setMeta((m) => ({ ...m, total: m.total + 1 }));
+    }
+  }, []);
+
+  return { items, meta, loading, error, remove };
 }

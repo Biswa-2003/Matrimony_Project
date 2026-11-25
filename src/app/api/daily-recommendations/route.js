@@ -1,9 +1,11 @@
 // app/api/daily-recommendations/route.js
 import { NextResponse } from "next/server";
+import { ensureSchema, notBlockedSql } from "@/lib/schema";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -17,7 +19,7 @@ async function getUserId() {
 
   if (!token || !process.env.JWT_SECRET) return null;
   try {
-    const d = jwt.verify(token, process.env.JWT_SECRET);
+    const d = await verifyLogin(token);
     return d?.id ?? d?.userId ?? null;
   } catch {
     return null;
@@ -46,9 +48,13 @@ export async function GET() {
 
     // 2) Build WHERE + params using only matrimony_profiles
     const where = [
-      `p.user_id <> $1`      // not me
-      // 🚫 removed is_active here to avoid missing-column errors
+      `p.user_id <> $1`, // not me
+      `COALESCE(p.is_active, TRUE) = TRUE`, // hide deactivated profiles
     ];
+    try {
+      await ensureSchema();
+      where.push(notBlockedSql("$1", "p.user_id"));
+    } catch { /* blocks table unavailable */ }
     const params = [meId];
 
     if (targetGender) {

@@ -89,7 +89,7 @@ export default function ContactUsPage() {
                     </div>
                     <h6 className="fw-bold mb-0 text-dark">Call Us</h6>
                   </div>
-                  <p className="text-muted ms-5 mb-0">+91 99999 99999</p>
+                  <p className="text-muted ms-5 mb-0">+91 6370103299</p>
                 </Card>
 
                 <Card className="border-0 shadow-sm rounded-4 p-4 hover-lift">
@@ -253,16 +253,16 @@ export default function ContactUsPage() {
 
       <style jsx global>{`
         .page-surface {
-            background-color: #f4f7fa;
+            background-color: var(--ivory);
             min-height: 100vh;
         }
         .header-section {
-            background: linear-gradient(135deg, var(--brand-maroon) 0%, #a01040 100%);
+            background: url('/images/paisley-light.svg') repeat, radial-gradient(120% 120% at 50% 0%, #7a1530 0%, #3b0a16 60%, #1c030b 100%);
             border-bottom-left-radius: 50px;
             border-bottom-right-radius: 50px;
             padding-bottom: 6rem;
         }
-        .text-maroon { color: var(--brand-maroon, #800020) !important; }
+        .text-maroon { color: var(--brand-maroon, #5a0f22) !important; }
         .backdrop-blur { backdrop-filter: blur(8px); }
         
         .form-control:focus {

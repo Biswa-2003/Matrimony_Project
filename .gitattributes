@@ -1,0 +1,2 @@
+# shell scripts must keep Linux line endings or they fail on the server
+*.sh text eol=lf

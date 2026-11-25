@@ -8,9 +8,8 @@ export default function ProfileResultCard({ p }) {
     const [hover, setHover] = useState(false);
 
     // Avatar fallback if no photo is present (similar to ShortlistPage logic)
-    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-        p.name || 'User'
-    )}&background=random&color=fff&size=128`;
+    const gender = String(p.gender || p.details?.Gender || '').toLowerCase();
+    const avatarUrl = gender === 'male' ? '/images/avatar-male.svg' : '/images/avatar-female.svg';
 
     const photoSrc = p.photo || p.photo_url || avatarUrl;
 

@@ -1,5 +1,6 @@
 // app/api/matches/_common.js
 import { NextResponse } from "next/server";
+import { ensureSchema, notBlockedSql } from "@/lib/schema";
 import { query } from "@/lib/db";
 
 /** Keep 0 while match_score() is being finalized */
@@ -14,6 +15,8 @@ function spanToInterval(span) {
 }
 
 const num = (v, d, lo, hi) => {
+  // A missing query param (null / "") must fall back to the default, not Number(null) === 0
+  if (v === null || v === undefined || String(v).trim() === "") return d;
   const n = Number(v);
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
 };
@@ -68,6 +71,15 @@ export async function buildCommonParts(meId, sp) {
   // because those columns do not exist in your DB (yet).
   const whereParts = [`u.id <> $1`];
   const params = [meId];
+
+  // Hide deactivated profiles and anyone blocked in either direction
+  whereParts.push(`COALESCE(mp.is_active, TRUE) = TRUE`);
+  try {
+    await ensureSchema();
+    whereParts.push(notBlockedSql("$1", "u.id"));
+  } catch {
+    /* blocks table unavailable — skip the filter rather than fail the list */
+  }
 
   // ✅ CRITICAL: Filter for OPPOSITE gender only (boys see girls, girls see boys)
   if (oppositeGender) {
@@ -154,7 +166,7 @@ export async function runListQuery({
     const sql = `
       SELECT
         u.id                           AS user_id,
-        u.email,
+        -- (no email/phone here: contact details are only revealed via /api/contact-unlock)
         -- display name built safely from either profile or users table
         COALESCE(
           NULLIF(BTRIM(CONCAT_WS(' ', mp.first_name, mp.last_name)), ''),

@@ -1,6 +1,10 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Always defined at build time so the login page's demo-credential code is compiled out unless enabled.
+    env: {
+        NEXT_PUBLIC_SHOW_DEMO_LOGIN: process.env.NEXT_PUBLIC_SHOW_DEMO_LOGIN || 'false',
+    },
     images: {
         remotePatterns: [
             {

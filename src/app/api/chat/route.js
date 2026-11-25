@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { query } from "@/lib/db";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
 /* ---------- OpenRouter client ---------- */
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || "dummy-key",
@@ -213,6 +214,7 @@ async function executeToolCall(toolName, args) {
 
 /* ---------- Main Chat Handler ---------- */
 export async function POST(req) {
+  { const limited = limitOr429(`ai-chat-llm:${clientIp(req)}`, 20, 10 * 60 * 1000); if (limited) return limited; }
   try {
     const { message, conversationHistory = [] } = await req.json();
 

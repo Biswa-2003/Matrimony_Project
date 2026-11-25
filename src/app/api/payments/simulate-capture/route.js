@@ -1,104 +1,39 @@
 import { NextResponse } from "next/server";
-import { query, getClient } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
-import crypto from "node:crypto";
+import { getPlanByCode, activatePlan, paymentsTestMode } from "@/lib/payments";
+
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { validateCoupon, redeemCoupon } from "@/lib/coupons";
+export const dynamic = "force-dynamic";
 
 /**
- * Test-mode "payment success" → activate/extend subscription.
- * Secured with x-test-secret header (optional but recommended).
+ * TEST MODE ONLY — activates a plan without payment.
+ * Disabled in production unless the server-only env var PAYMENTS_TEST_MODE=true is set.
+ * (Previously guarded only by an optional NEXT_PUBLIC_ header, which is visible to every browser.)
  */
 export async function POST(req) {
+  { const limited = limitOr429(`pay-sim:${clientIp(req)}`, 10, 10 * 60 * 1000); if (limited) return limited; }
+  if (!paymentsTestMode()) {
+    return NextResponse.json({ error: "Not available." }, { status: 404 });
+  }
   const userId = await getUserIdFromCookie();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const secretHeader = req.headers.get("x-test-secret") || "";
-  const expected = process.env.NEXT_PUBLIC_TEST_HEADER || "";
-  if (expected && secretHeader !== expected) {
-    return NextResponse.json({ error: "Invalid test secret" }, { status: 403 });
-  }
-
-  const body = await req.json().catch(() => ({}));
-  const planCode = (body?.plan_code || "").trim();
-  if (!planCode) {
-    return NextResponse.json({ error: "plan_code required" }, { status: 400 });
-  }
-
-  // Get plan by code
-  const planRes = await query(
-    `SELECT id, code, name, price_inr, duration_days, contact_limit
-       FROM public.plans
-      WHERE UPPER(code) = UPPER($1)
-      LIMIT 1`,
-    [planCode]
-  );
-  const plan = planRes.rows[0];
-  if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
-
-  const client = await getClient();
   try {
-    await client.query("BEGIN");
-
-    // Lock latest active sub if present
-    const activeRes = await client.query(
-      `
-      SELECT id, user_id, plan_id, starts_at, ends_at, remaining_contacts
-      FROM public.subscriptions
-      WHERE user_id = $1 AND ends_at >= NOW()
-      ORDER BY ends_at DESC
-      FOR UPDATE
-      LIMIT 1
-      `,
-      [userId]
-    );
-    const active = activeRes.rows[0];
-
-    if (active) {
-      // Extend from the later of (now, existing ends_at) and stack contacts.
-      const upd = await client.query(
-        `
-        UPDATE public.subscriptions
-        SET
-          plan_id = $2,
-          ends_at = GREATEST(ends_at, NOW()) + ($3 || ' days')::interval,
-          remaining_contacts = remaining_contacts + $4
-        WHERE id = $1
-        RETURNING id, user_id, plan_id, starts_at, ends_at, remaining_contacts
-        `,
-        [active.id, plan.id, String(plan.duration_days), plan.contact_limit]
-      );
-      await client.query("COMMIT");
-      // include plan code in response for your UI
-      return NextResponse.json({
-        ok: true,
-        mode: "extend",
-        subscription: { ...upd.rows[0], code: plan.code }
-      });
+    const body = await req.json().catch(() => ({}));
+    const plan = await getPlanByCode(body?.plan_code);
+    if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
+    let coupon = null, price = null;
+    if (body?.coupon_code) {
+      const v = await validateCoupon(body.coupon_code, plan, userId);
+      if (!v.ok) return NextResponse.json({ error: v.error, couponError: true }, { status: 400 });
+      ({ coupon, price } = v);
     }
-
-    // No active subscription → create a fresh one
-    const newId = crypto.randomUUID();
-    const ins = await client.query(
-      `
-      INSERT INTO public.subscriptions
-        (id, user_id, plan_id, starts_at, ends_at, remaining_contacts, created_at)
-      VALUES
-        ($1, $2, $3, NOW(), NOW() + ($4 || ' days')::interval, $5, NOW())
-      RETURNING id, user_id, plan_id, starts_at, ends_at, remaining_contacts
-      `,
-      [newId, userId, plan.id, String(plan.duration_days), plan.contact_limit]
-    );
-
-    await client.query("COMMIT");
-    return NextResponse.json({
-      ok: true,
-      mode: "new",
-      subscription: { ...ins.rows[0], code: plan.code }
-    });
+    const subscription = await activatePlan(userId, plan);
+    if (coupon) await redeemCoupon(coupon.id, userId, price.discountPaise);
+    return NextResponse.json({ ok: true, mode: subscription.mode, subscription });
   } catch (e) {
-    await client.query("ROLLBACK");
-    console.error(e);
+    console.error("[payments] simulate-capture failed:", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
-  } finally {
-    client.release();
   }
 }

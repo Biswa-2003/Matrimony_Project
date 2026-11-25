@@ -11,15 +11,25 @@ import {
   Alert,
 } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
-import DashNav from "@/app/components/dashnav";
+import BlockedMembers from "@/app/dashboard/(dashboard-components)/BlockedMembers";
+import NotificationSettings from "@/app/dashboard/(dashboard-components)/NotificationSettings";
+import SecuritySettings from "@/app/dashboard/(dashboard-components)/SecuritySettings";
+import PasswordChecklist from "@/app/components/PasswordChecklist";
+import { useSearchParams } from "next/navigation";
 
-export default function ProfileSettingsPage() {
-  const [activeTab, setActiveTab] = useState("email");
+function ProfileSettingsInner() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams?.get("tab");
+  const [activeTab, setActiveTab] = useState(
+    ["email", "password", "security", "notifications", "privacy", "setting", "blocked", "deactivate", "delete"].includes(initialTab) ? initialTab : "email"
+  );
 
   const [email, setEmail] = useState("");
   const [primaryNumber, setPrimaryNumber] = useState("");
   const [parentNumber, setParentNumber] = useState("");
   const [lockPhoto, setLockPhoto] = useState("no");
+  const [showPhone, setShowPhone] = useState(true);
+  const [showEmail, setShowEmail] = useState(true);
   const [visibility, setVisibility] = useState("all");
   const [deactivateDuration, setDeactivateDuration] = useState("none");
   const [deleteReason, setDeleteReason] = useState("marriage");
@@ -52,6 +62,8 @@ export default function ProfileSettingsPage() {
         setPrimaryNumber(data.primaryNumber || "");
         setParentNumber(data.parentNumber || "");
         setLockPhoto(data.photoLocked ? "yes" : "no");
+        setShowPhone(Boolean(data.showPhone));
+        setShowEmail(Boolean(data.showEmail));
       }
     } catch (err) {
       console.error("Failed to fetch privacy settings", err);
@@ -105,6 +117,8 @@ export default function ProfileSettingsPage() {
           primaryNumber,
           parentNumber,
           photoLocked: lockPhoto === "yes",
+          showPhone,
+          showEmail,
         }),
       });
       const data = await res.json();
@@ -222,10 +236,13 @@ export default function ProfileSettingsPage() {
                   <div className="small text-muted fw-bold mb-2 ps-3 text-uppercase" style={{ fontSize: '0.75rem' }}>Account</div>
                   <SettingsTab eventKey="email" label="Email Address" icon={<i className="bi bi-envelope"></i>} />
                   <SettingsTab eventKey="password" label="Change Password" icon={<i className="bi bi-key"></i>} />
+                  <SettingsTab eventKey="security" label="Login & Security" icon={<i className="bi bi-shield-check"></i>} />
+                  <SettingsTab eventKey="notifications" label="Notifications" icon={<i className="bi bi-bell"></i>} />
 
                   <div className="small text-muted fw-bold mb-2 ps-3 mt-3 text-uppercase" style={{ fontSize: '0.75rem' }}>Preferences</div>
                   <SettingsTab eventKey="privacy" label="Privacy Options" icon={<i className="bi bi-shield-lock"></i>} />
                   <SettingsTab eventKey="setting" label="Profile Visibility" icon={<i className="bi bi-eye"></i>} />
+                  <SettingsTab eventKey="blocked" label="Blocked Members" icon={<i className="bi bi-slash-circle"></i>} />
 
                   <div className="small text-muted fw-bold mb-2 ps-3 mt-3 text-uppercase" style={{ fontSize: '0.75rem' }}>Danger Zone</div>
                   <SettingsTab eventKey="deactivate" label="Deactivate Profile" icon={<i className="bi bi-pause-circle"></i>} />
@@ -269,7 +286,7 @@ export default function ProfileSettingsPage() {
                   <div className="fade-in-up">
                     <h5 className="fw-bold text-maroon mb-3">Change Password</h5>
                     <p className="text-muted mb-4">
-                      Secure your account with a strong password. We recommend using at least 6 characters.
+                      Use at least 10 characters with upper- and lower-case letters, a number and a symbol. Changing it signs you out on all other devices.
                     </p>
                     <div style={{ maxWidth: 400 }}>
                       <Form.Group className="mb-3">
@@ -289,6 +306,7 @@ export default function ProfileSettingsPage() {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                         />
+                        <PasswordChecklist password={newPassword} />
                       </Form.Group>
                       <Form.Group className="mb-4">
                         <Form.Label className="fw-semibold">Confirm Password</Form.Label>
@@ -340,6 +358,21 @@ export default function ProfileSettingsPage() {
                           />
                         </div>
                       </Form.Group>
+
+                      <h6 className="fw-bold text-dark mb-2">Who can see my contact details</h6>
+                      <p className="small text-muted mb-3">Premium members use one contact credit to view these. Hidden details are never shown — members can still message you once connected.</p>
+                      <div className="set-list mb-2">
+                        <label className="set-row">
+                          <span className="set-icon"><i className="bi bi-telephone" /></span>
+                          <span className="set-text"><span className="set-title">Show my phone number</span><span className="set-sub">to premium members who unlock my contact</span></span>
+                          <span className="form-check form-switch m-0"><input className="form-check-input set-switch" type="checkbox" role="switch" checked={showPhone} onChange={(e) => setShowPhone(e.target.checked)} aria-label="Show my phone number" /></span>
+                        </label>
+                        <label className="set-row">
+                          <span className="set-icon"><i className="bi bi-envelope" /></span>
+                          <span className="set-text"><span className="set-title">Show my email address</span><span className="set-sub">to premium members who unlock my contact</span></span>
+                          <span className="form-check form-switch m-0"><input className="form-check-input set-switch" type="checkbox" role="switch" checked={showEmail} onChange={(e) => setShowEmail(e.target.checked)} aria-label="Show my email address" /></span>
+                        </label>
+                      </div>
 
                       <hr className="my-4" />
 
@@ -418,6 +451,10 @@ export default function ProfileSettingsPage() {
                     </Button>
                   </div>
                 )}
+
+                {activeTab === "blocked" && <BlockedMembers />}
+                {activeTab === "security" && <SecuritySettings />}
+                {activeTab === "notifications" && <NotificationSettings />}
 
                 {/* Deactivate Profile */}
                 {activeTab === "deactivate" && (
@@ -502,7 +539,7 @@ export default function ProfileSettingsPage() {
 
       <style jsx global>{`
         .profile-surface {
-            background-color: #f4f7fa;
+            background-color: var(--ivory);
             min-height: 100vh;
         }
         .pe-card {
@@ -512,20 +549,19 @@ export default function ProfileSettingsPage() {
             background: #fff;
             overflow: hidden;
         }
-        .text-maroon { color: var(--brand-maroon, #800020) !important; }
-        .text-primary { color: var(--brand-primary, #E33183) !important; }
+        .text-maroon { color: var(--brand-maroon, #5a0f22) !important; }
+        .text-primary { color: var(--brand-primary, #a3123a) !important; }
         
         .active-tab {
-            background-color: #fff1f7 !important;
-            color: var(--brand-primary, #E33183) !important;
+            background: var(--royal) !important;
+            color: var(--gold-light) !important;
         }
-        .active-tab span {
-            color: var(--brand-primary, #E33183);
-        }
+        .active-tab span, .active-tab i { color: var(--gold-light) !important; }
+
         
         .btn-primary { 
-           background-color: var(--brand-primary, #E33183); 
-           border-color: var(--brand-primary, #E33183);
+           background-color: var(--brand-primary, #a3123a); 
+           border-color: var(--brand-primary, #a3123a);
         }
         .btn-primary:hover {
            background-color: #c21e6b;
@@ -533,7 +569,7 @@ export default function ProfileSettingsPage() {
         }
         
         .form-control:focus, .form-select:focus {
-            border-color: var(--brand-primary, #E33183);
+            border-color: var(--brand-primary, #a3123a);
             box-shadow: 0 0 0 0.2rem rgba(227, 49, 131, 0.2);
         }
         
@@ -546,5 +582,13 @@ export default function ProfileSettingsPage() {
         }
       `}</style>
     </>
+  );
+}
+
+export default function ProfileSettingsPage() {
+  return (
+    <React.Suspense fallback={<div className="text-center py-5"><span className="spinner-border" /></div>}>
+      <ProfileSettingsInner />
+    </React.Suspense>
   );
 }

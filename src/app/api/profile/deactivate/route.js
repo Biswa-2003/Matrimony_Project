@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
 export const dynamic = "force-dynamic";
 
 export async function POST(req) {
+  { const limited = limitOr429(`profile-deactivate:${clientIp(req)}`, 5, 60 * 60 * 1000); if (limited) return limited; }
   try {
     const { duration } = await req.json(); // "15d" | "1m" | null
 

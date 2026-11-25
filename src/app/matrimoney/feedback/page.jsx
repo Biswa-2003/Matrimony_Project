@@ -194,17 +194,17 @@ export default function FeedbackPage() {
             </div>
 
             <style jsx global>{`
-        .bg-pink-light { background-color: #fff0f5; }
-        .text-maroon { color: #800020; }
+        .bg-pink-light { background-color: var(--gold-pale); }
+        .text-maroon { color: #5a0f22; }
         .pe-card { border-radius: 16px; }
-        .feedback-surface { background-color: #f8f9fa; min-height: 80vh; }
+        .feedback-surface { background-color: var(--ivory); min-height: 80vh; }
         .form-control:focus {
-            border-color: #E33183;
+            border-color: #a3123a;
             box-shadow: 0 0 0 0.2rem rgba(227, 49, 131, 0.25);
         }
         .btn-primary {
-            background-color: #E33183 !important;
-            border-color: #E33183 !important;
+            background-color: #a3123a !important;
+            border-color: #a3123a !important;
         }
         .btn-primary:hover {
             background-color: #c21e6b !important;

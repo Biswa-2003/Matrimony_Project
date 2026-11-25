@@ -3,25 +3,25 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { issueLoginToken, setLoginCookie } from "@/lib/sessions";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
 export async function POST(request) {
   try {
-    // 🛡️ Rate Limiting
-    const ip = request.headers.get("x-forwarded-for") || "unknown";
-    const isAllowed = rateLimit(ip, 5, 60 * 1000); // 5 attempts per minute
-    if (!isAllowed) {
-      return NextResponse.json(
-        { error: "Too many login attempts. Please try again later." },
-        { status: 429 }
-      );
+    // 🛡️ Rate limiting — per IP (own bucket). Per-account brute force is handled
+    // below by the DB lockout (5 wrong passwords → 15 min lock).
+    const limited = limitOr429(`login:${clientIp(request)}`, 10, 60 * 1000,
+      "Too many login attempts. Please wait a minute and try again.");
+    if (limited) return limited;
+
+    const { emailOrPhone, password } = await request.json().catch(() => ({}));
+    if (!emailOrPhone || !password) {
+      return NextResponse.json({ error: "Please enter your email/phone and password." }, { status: 400 });
     }
 
-    const { emailOrPhone, password } = await request.json();
-
-    const identifier = emailOrPhone.trim().toLowerCase();
+    const identifier = String(emailOrPhone).trim().toLowerCase();
     // Logging removed for security
 
     // 🔍 Find user by email (case-insensitive) or mobile_no
@@ -66,6 +66,15 @@ export async function POST(request) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
+    // 🚫 Moderation: banned / suspended accounts can't sign in (checked only after the correct password)
+    if (user.banned_at) {
+      return NextResponse.json({ error: "This account has been closed for violating our community guidelines. Contact support if you think this is a mistake." }, { status: 403 });
+    }
+    if (user.suspended_until && new Date(user.suspended_until) > new Date()) {
+      const until = new Date(user.suspended_until).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+      return NextResponse.json({ error: `This account is suspended until ${until}. Contact support if you need help.` }, { status: 403 });
+    }
+
     // ✅ Successful Login: Reset failures & update last_login
     await query(
       `UPDATE users 
@@ -76,18 +85,8 @@ export async function POST(request) {
       [user.id]
     );
 
-    // 🧾 Create JWT token
-    const token = jwt.sign(
-      {
-        id: user.id,
-        name: user.first_name,
-        email: user.email,
-        matri_id: user.matri_id,
-        role: user.role || "user",
-      },
-      JWT_SECRET,
-      { expiresIn: "2h" }
-    );
+    // 🧾 Create a tracked session + signed token
+    const { token } = await issueLoginToken(user, request);
 
     // 🍪 Send token in cookie
     const response = NextResponse.json(
@@ -106,13 +105,7 @@ export async function POST(request) {
       { status: 200 }
     );
 
-    response.cookies.set("token", token, {
-      httpOnly: true,
-      path: "/",
-      maxAge: 60 * 60 * 2, // 2 hours
-      sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
-    });
+    setLoginCookie(response, token);
 
     return response;
   } catch (err) {

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import MatchesCategoryClient from "../MatchesCategoryClient";
-import DashNav from "@/app/components/dashnav";
 import MatchesGlobalStyles from "./MatchesGlobalStyles";
 import { BsEyeFill, BsStars, BsPeopleFill, BsClockHistory, BsPersonCheckFill, BsFillPersonLinesFill, BsSearchHeart } from "react-icons/bs";
 
@@ -39,24 +39,28 @@ export default async function MatchesCategoryPage({ params }) {
 
       <div className="page-surface">
         {/* Header Section */}
-        <div className="header-section text-center text-white mb-5 position-relative">
-          {/* Decorative Background */}
-          <div className="position-absolute top-0 start-50 translate-middle-x w-100 h-100 overflow-hidden" style={{ opacity: 0.1 }}>
-            <div className="position-absolute top-50 start-50 translate-middle rounded-circle bg-white" style={{ width: 600, height: 600, filter: 'blur(80px)' }}></div>
-          </div>
-
-          <div className="container py-5 position-relative z-1">
-            <div className="d-inline-flex align-items-center justify-content-center p-3 rounded-circle bg-white bg-opacity-10 mb-3 backdrop-blur shadow-sm">
-              <span style={{ fontSize: '2.5rem', color: 'white' }}>{cfg.icon}</span>
-            </div>
-            <h2 className="fw-bold mb-2">{cfg.title}</h2>
-            <p className="opacity-75 mb-0" style={{ maxWidth: 600, margin: '0 auto' }}>
-              Discover profiles curated just for you. Connect with your matches instantly.
+        <div className="header-section text-center text-white mb-4">
+          <div className="container py-5 position-relative">
+            <div className="match-header-icon mb-3">{cfg.icon}</div>
+            <span className="eyebrow light mb-2">Your Matches</span>
+            <h1 className="mb-2" style={{ fontSize: "clamp(2.2rem, 4vw, 3.2rem)" }}>{cfg.title}</h1>
+            <p className="mb-0" style={{ maxWidth: 600, margin: "0 auto", color: "rgba(255,255,255,.72)" }}>
+              Profiles thoughtfully selected for you. Take your time — the right one is worth it.
             </p>
           </div>
         </div>
 
-        <div className="container pb-5" style={{ marginTop: '-40px' }}>
+        <div className="container mb-4">
+          <nav className="match-tabs" aria-label="Match categories">
+            {Object.entries(CATEGORIES).map(([key, c]) => (
+              <Link key={key} href={`/matrimoney/matches/${key}`} className={`match-tab ${key === p.category ? "active" : ""}`}>
+                <span className="me-1">{c.icon}</span> {c.title.replace("Over All", "All")}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div className="container pb-5">
           <MatchesCategoryClient endpoint={cfg.api} />
         </div>
       </div>

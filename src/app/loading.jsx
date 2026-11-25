@@ -32,7 +32,7 @@ export default function Loading() {
         }
 
         .heart {
-          background-color: var(--brand-primary, #E33183);
+          background-color: var(--brand-primary, #a3123a);
           display: inline-block;
           height: 30px;
           margin: 0 10px;
@@ -46,7 +46,7 @@ export default function Loading() {
         .heart:before,
         .heart:after {
           content: "";
-          background-color: var(--brand-primary, #E33183);
+          background-color: var(--brand-primary, #a3123a);
           border-radius: 50%;
           height: 30px;
           position: absolute;
@@ -71,14 +71,14 @@ export default function Loading() {
           width: 60px;
           height: 60px;
           border-radius: 50%;
-          border: 2px solid var(--brand-primary, #E33183);
+          border: 2px solid var(--brand-primary, #a3123a);
           opacity: 0;
           animation: ripple 1.2s infinite;
         }
 
         .loading-text {
           font-family: var(--font-geist-sans), sans-serif;
-          color: var(--brand-maroon, #800020);
+          color: var(--brand-maroon, #5a0f22);
           font-weight: 500;
           letter-spacing: 0.5px;
           animation: fadeText 1.2s infinite alternate;

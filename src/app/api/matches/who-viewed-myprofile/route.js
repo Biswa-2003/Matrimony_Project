@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -12,7 +13,7 @@ async function getUserId() {
     c.get("token")?.value || c.get("auth_token")?.value || c.get("auth")?.value;
   if (!token || !process.env.JWT_SECRET) return null;
   try {
-    const d = jwt.verify(token, process.env.JWT_SECRET);
+    const d = await verifyLogin(token);
     return d?.id ?? d?.userId ?? null;
   } catch {
     return null;

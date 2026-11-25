@@ -2,10 +2,12 @@
 export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
+import { ensureSchema, notBlockedSql } from "@/lib/schema";
 import { cookies, headers } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { query } from '@/lib/db';
 
+import { verifyLogin } from "@/lib/auth";
 const PROFILE_TABLE = 'matrimony_profiles';
 
 /* ---------- Photo helpers (same as before) ---------- */
@@ -91,7 +93,7 @@ async function getViewerIdFromJwt() {
       if (auth?.startsWith('Bearer ')) token = auth.slice(7).trim();
     }
     if (token && process.env.JWT_SECRET) {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const payload = await verifyLogin(token);
       viewerId = payload?.id || payload?.userId || null;
     }
   } catch {
@@ -250,6 +252,15 @@ export async function GET(req) {
 
     params.push(viewerId ?? null); // $3
     where.push(`($3::text IS NULL OR u.id::text <> $3::text)`);
+
+    // never surface deactivated profiles, or members blocked either way
+    where.push(`COALESCE(mp.is_active, TRUE) = TRUE`);
+    if (viewerId) {
+      try {
+        await ensureSchema();
+        where.push(notBlockedSql(`$3::uuid`, "u.id"));
+      } catch { /* blocks table unavailable */ }
+    }
 
     const sql = `
       SELECT

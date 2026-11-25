@@ -7,17 +7,24 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "jest"
+    "test": "jest",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:backup": "node scripts/backup-db.mjs",
+    "dev:neon": "node scripts/dev-neon.mjs"
   },
   "dependencies": {
+    "@fontsource/cormorant-garamond": "^5.3.0",
     "@google/generative-ai": "^0.24.1",
     "@popperjs/core": "^2.11.8",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "axios": "^1.11.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "bootstrap": "^5.3.7",
     "bootstrap-icons": "^1.13.1",
     "dotenv": "^16.5.0",
+    "framer-motion": "^14.14.0",
     "jsonwebtoken": "^9.0.2",
     "next": "^16.1.1",
     "nodemailer": "^7.0.3",
@@ -29,6 +36,7 @@
     "react-easy-crop": "^5.4.2",
     "react-icons": "^5.5.0",
     "react-select": "^5.10.2",
+    "three": "^0.187.0",
     "twilio": "^5.7.1",
     "uuid": "^11.1.0"
   },

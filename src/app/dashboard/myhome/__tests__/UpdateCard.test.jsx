@@ -29,6 +29,8 @@ import { resolvePhoto } from "../myhome.utils";
 
 beforeEach(() => {
     pushMock.mockClear();
+    // Connect now sends an interest — never hit the network from unit tests
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) }));
     resolvePhoto.mockClear();
 });
 

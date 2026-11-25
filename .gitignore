@@ -41,9 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 # User uploads & local assets
-public/uploads/
-public/Image/
-public/Image_02/
+# User-uploaded member photos stay private; only the default avatar is tracked
+public/uploads/*
+!public/uploads/default.jpg
 
 # SonarQube scanner
 .scannerwork/
@@ -60,3 +60,6 @@ schema_dump.json
 # Docker (optional - uncomment if you don't want to commit)
 # docker-compose.yml
 # Dockerfile
+
+# database backups (contain member data — never commit)
+/backups/

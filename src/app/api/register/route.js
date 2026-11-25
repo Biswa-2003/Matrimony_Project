@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req) {
   try {
     // 🛡️ Rate Limiting
-    const ip = req.headers.get("x-forwarded-for") || "unknown";
-    if (!rateLimit(ip, 3, 60 * 60 * 1000)) { // 3 registrations per hour per IP
+    const ip = (req.headers.get("x-forwarded-for") || "local").split(",")[0].trim();
+    if (!rateLimit(`register:${ip}`, 10, 60 * 60 * 1000)) { // 10 sign-up attempts per hour per IP
       return NextResponse.json({ error: "Too many registration attempts. Please try again later." }, { status: 429 });
     }
 
@@ -63,6 +63,56 @@ export async function POST(req) {
         { error: "Invalid email address." },
         { status: 400 }
       );
+    }
+
+    // 📱 Indian mobile number (optional +91 / 0 prefix, 10 digits starting 6-9)
+    if (phoneNumber) {
+      const digits = String(phoneNumber).replace(/\D/g, "").replace(/^(91|0)(?=\d{10}$)/, "");
+      if (!/^[6-9]\d{9}$/.test(digits)) {
+        return NextResponse.json({ error: "Please enter a valid 10-digit mobile number." }, { status: 400 });
+      }
+    }
+
+    // 🎂 Legal marriageable age in India: 21 (groom), 18 (bride)
+    if (dob) {
+      const birth = new Date(dob);
+      if (Number.isNaN(birth.getTime())) {
+        return NextResponse.json({ error: "Please enter a valid date of birth." }, { status: 400 });
+      }
+      const now = new Date();
+      let age = now.getFullYear() - birth.getFullYear();
+      const m = now.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+      const minAge = String(gender || "").toLowerCase() === "male" ? 21 : 18;
+      if (age < minAge || age > 100) {
+        return NextResponse.json(
+          { error: `Grooms must be at least 21 and brides at least 18 years old to register.` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ✉️ Email OTP — enforced whenever the server can actually send email
+    const otpRequired = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS) || process.env.REQUIRE_EMAIL_OTP === "true";
+    if (otpRequired) {
+      const otp = String(body.otp || "").trim();
+      if (!otp) {
+        return NextResponse.json({ error: "Please verify your email with the OTP we sent." }, { status: 400 });
+      }
+      // at most 5 OTP guesses per email per 15 min — stops brute-forcing the 6-digit code
+      if (!rateLimit(`register-otp:${email}`, 5, 15 * 60 * 1000)) {
+        await query("DELETE FROM otp_verification WHERE email = $1", [email]);
+        return NextResponse.json({ error: "Too many wrong codes. Please request a new OTP in 15 minutes." }, { status: 429 });
+      }
+      const otpRes = await query("SELECT otp, otp_expiry FROM otp_verification WHERE email = $1", [email]);
+      const row = otpRes.rows[0];
+      if (!row || row.otp !== otp) {
+        return NextResponse.json({ error: "Invalid OTP. Please check the code and try again." }, { status: 400 });
+      }
+      if (new Date(row.otp_expiry) < new Date()) {
+        return NextResponse.json({ error: "OTP has expired. Please request a new one." }, { status: 400 });
+      }
+      await query("DELETE FROM otp_verification WHERE email = $1", [email]);
     }
 
     // check if email already exists
@@ -120,12 +170,15 @@ export async function POST(req) {
     // 2️⃣ Insert into matrimony_profiles table
     // (columns you showed + what we used in advanced-search)
     const profileId = uuidv4();
+    const { newMatriId } = await import("@/lib/members");
+    const matriId = await newMatriId(); // public profile id — every profile needs one to be viewable
 
     await query(
       `
       INSERT INTO matrimony_profiles (
         id,
         user_id,
+        matri_id,
         first_name,
         last_name,
         gender,
@@ -139,7 +192,7 @@ export async function POST(req) {
         updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5,
+        $1, $2, $12, $3, $4, $5,
         $6, $7,
         $8,
         $9, $10, $11,
@@ -158,10 +211,18 @@ export async function POST(req) {
         true,                  // email_visible
         true,                  // phone_visible
         true,                  // is_active
+        matriId,               // $12
       ]
     );
 
     // ✅ Success
+    // invited by a friend? (?ref=CODE on any page stores an mm_ref cookie for 30 days)
+    const refCode = (req.headers.get("cookie") || "").match(/(?:^|;\s*)mm_ref=([A-Za-z0-9]{4,12})/)?.[1];
+    if (refCode) {
+      const { recordReferral } = await import("@/lib/referrals");
+      await recordReferral(userId, refCode);
+    }
+
     return NextResponse.json(
       { message: "User registered successfully", userId },
       { status: 201 }

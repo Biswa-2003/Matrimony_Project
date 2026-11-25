@@ -1,117 +1,160 @@
 'use client';
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { getSession } from "@/lib/session-client";
 import "bootstrap-icons/font/bootstrap-icons.css";
-import "bootstrap/dist/css/bootstrap.min.css";
+
+import { useI18n } from "@/lib/i18n/LanguageProvider";
+import InstallAppButton from "@/app/components/InstallApp";
+const COMPANY = [
+  { href: "/matrimoney/aboutus", label: "About Us" },
+  { href: "/matrimoney/contactus", label: "Contact Us" },
+  { href: "/#stories", label: "Success Stories" },
+  { href: "/matrimoney/feedback", label: "Feedback" },
+  { href: "/matrimoney/safety", label: "Safety Centre" },
+];
+
+const DISCOVER = [
+  { href: "/matrimoney/package", label: "Premium Plans" },
+  { href: "/matrimoney/shortlist", label: "Shortlisted Profiles" },
+  { href: "/matrimoney/matches/who-viewed-myprofile", label: "Who Viewed My Profile" },
+  { href: "/matrimoney/interests?filter=received", label: "Interest Received" },
+];
+
+const SOCIAL = [
+  { icon: "bi-facebook", label: "Facebook" },
+  { icon: "bi-twitter-x", label: "X" },
+  { icon: "bi-instagram", label: "Instagram" },
+  { icon: "bi-youtube", label: "YouTube" },
+];
 
 const Footer = () => {
+  const { t } = useI18n();
   const pathname = usePathname();
-  if (pathname?.startsWith('/admin')) return null;
+  const [member, setMember] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSession().then((d) => !cancelled && setMember(Boolean(d?.id)));
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  if (pathname?.startsWith("/admin")) return null;
+
   return (
-    <footer className="text-white pt-5 pb-3 mt-auto" style={{ backgroundColor: 'var(--brand-maroon, #800020)' }}>
-      <div className="container">
-        <div className="row g-4 justify-content-between">
-
-          {/* Column 1: Get in Touch */}
-          <div className="col-lg-4 col-md-6">
-            <h6 className="fw-bold mb-4 text-uppercase tracking-wider">Get in Touch</h6>
-            <ul className="list-unstyled d-flex flex-column gap-2 small opacity-75">
-              <li className="mb-1 d-flex gap-2"><i className="bi bi-geo-alt-fill"></i> Bhubaneswar, Odisha, India</li>
-              <li className="mb-1 d-flex gap-2"><i className="bi bi-telephone-fill"></i> +91 6370103299</li>
-              <li className="mb-1 d-flex gap-2"><i className="bi bi-envelope-fill"></i> support@matrimony.com</li>
-            </ul>
-
-            <div className="d-flex gap-3 mt-4">
-              {/* Google Play Button */}
-              <div className="bg-black border border-white border-opacity-25 rounded px-3 py-1 d-flex align-items-center cursor-pointer hover-scale" style={{ width: 'fit-content' }}>
-                <i className="bi bi-google-play fs-4 me-2"></i>
-                <div style={{ lineHeight: '1.2' }}>
-                  <small className="d-block text-white-50" style={{ fontSize: '0.6rem' }}>GET IT ON</small>
-                  <span className="fw-bold" style={{ fontSize: '0.8rem' }}>Google Play</span>
-                </div>
+    <footer className="site-footer text-white mt-auto">
+      <div className="mandala-deco light footer-mandala" aria-hidden="true" />
+      {/* Call-to-action band */}
+      <div className="container footer-cta-wrap">
+        <div>
+          <div className="footer-cta">
+            <div className="mandala-deco light" aria-hidden="true" />
+            <div className="row align-items-center g-4 position-relative">
+              <div className="col-lg-8 text-center text-lg-start">
+                <span className="eyebrow light mb-2">{member ? "Premium Membership" : "Begin Your Forever"}</span>
+                <h3 className="text-white mb-2" style={{ fontSize: "2.2rem" }}>
+                  {member ? "Get noticed by the families that matter." : "Your soulmate may be just one introduction away."}
+                </h3>
+                <p className="mb-0 text-white-50">
+                  {member
+                    ? "Upgrade to contact more matches, appear higher in searches and get personal assistance."
+                    : "Join thousands of verified families finding meaningful matches every day."}
+                </p>
               </div>
-
-              {/* App Store Button */}
-              <div className="bg-black border border-white border-opacity-25 rounded px-3 py-1 d-flex align-items-center cursor-pointer hover-scale" style={{ width: 'fit-content' }}>
-                <i className="bi bi-apple fs-4 me-2"></i>
-                <div style={{ lineHeight: '1.2' }}>
-                  <small className="d-block text-white-50" style={{ fontSize: '0.6rem' }}>Download on the</small>
-                  <span className="fw-bold" style={{ fontSize: '0.8rem' }}>App Store</span>
-                </div>
+              <div className="col-lg-4 d-flex gap-2 justify-content-center justify-content-lg-end flex-wrap">
+                <Link href={member ? "/matrimoney/package" : "/#join"} className="btn btn-gold px-4 py-2">
+                  {member ? "Upgrade Plan" : "Register Free"}
+                </Link>
+                <Link href="/matrimoney/matches/overall" className="btn btn-glass rounded-pill px-4 py-2">
+                  Browse Matches
+                </Link>
               </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Column 2: Company */}
-          <div className="col-lg-2 col-md-6">
-            <h6 className="fw-bold mb-4 text-uppercase small tracking-wider">Company</h6>
-            <ul className="list-unstyled d-flex flex-column gap-3 small opacity-75">
-              <li><Link href="/matrimoney/aboutus" className="text-reset text-decoration-none hover-link">About Us</Link></li>
-              <li><Link href="/matrimoney/contactus" className="text-reset text-decoration-none hover-link">Contact Us</Link></li>
-              <li><Link href="/matrimoney/success-stories" className="text-reset text-decoration-none hover-link">Success Stories</Link></li>
+      <div className="container pt-5 position-relative" style={{ zIndex: 1 }}>
+        <div className="row g-4 justify-content-between">
+          {/* Brand + contact */}
+          <div className="col-lg-4 col-md-6">
+            <Link href="/" className="brand-logo mb-3">
+              <span className="brand-mark" aria-hidden="true" />
+              <span>
+                <span className="brand-word">
+                  <span className="text-white">Matri</span>
+                  <span className="gold-text">Money</span>
+                </span>
+                <span className="brand-tagline" style={{ color: "var(--gold-light)" }}>Sacred Unions</span>
+              </span>
+            </Link>
+            <p className="small footer-muted mb-3" style={{ maxWidth: 320 }}>
+              A premium, family-first matrimony service bringing together verified brides and grooms across India and the world.
+            </p>
+            <ul className="list-unstyled d-flex flex-column gap-2 small footer-muted">
+              <li className="d-flex gap-2"><i className="bi bi-geo-alt-fill text-gold" /> Bhubaneswar, Odisha, India</li>
+              <li className="d-flex gap-2"><i className="bi bi-telephone-fill text-gold" /> +91 6370103299</li>
+              <li className="d-flex gap-2"><i className="bi bi-envelope-fill text-gold" /> support@matrimony.com</li>
+            </ul>
+
+            <div className="mt-4">
+              <InstallAppButton />
+            </div>
+          </div>
+
+          <div className="col-lg-2 col-md-6 col-6">
+            <h6 className="footer-heading">{t("footer.company")}</h6>
+            <ul className="list-unstyled d-flex flex-column gap-2 small">
+              {COMPANY.map((l) => (
+                <li key={l.label}><Link href={l.href} className="footer-link">{l.label}</Link></li>
+              ))}
             </ul>
           </div>
 
-          {/* Column 3: Discover */}
-          <div className="col-lg-3 col-md-6">
-            <h6 className="fw-bold mb-4 text-uppercase small tracking-wider">Discover</h6>
-            <ul className="list-unstyled d-flex flex-column gap-3 small opacity-75">
-              <li><Link href="/matrimoney/package" className="text-reset text-decoration-none hover-link">Premium Plans</Link></li>
-              <li><Link href="/matrimoney/shortlist" className="text-reset text-decoration-none hover-link">Shortlisted Profiles</Link></li>
-              <li><Link href="/matrimoney/matches/who-viewed-myprofile" className="text-reset text-decoration-none hover-link">Who Viewed My Profile</Link></li>
-              <li><Link href="/matrimoney/interests?filter=received" className="text-reset text-decoration-none hover-link">Interest Received</Link></li>
+          <div className="col-lg-3 col-md-6 col-6">
+            <h6 className="footer-heading">{t("footer.discover")}</h6>
+            <ul className="list-unstyled d-flex flex-column gap-2 small">
+              {DISCOVER.map((l) => (
+                <li key={l.label}><Link href={l.href} className="footer-link">{l.label}</Link></li>
+              ))}
             </ul>
           </div>
 
-          {/* Column 4: Social Media */}
           <div className="col-lg-3 col-md-6">
-            <h6 className="fw-bold mb-4 text-uppercase tracking-wider">Social Media</h6>
-            <div className="d-flex gap-3">
-              {[
-                { icon: 'bi-facebook', href: '#' },
-                { icon: 'bi-twitter-x', href: '#' },
-                { icon: 'bi-instagram', href: '#' },
-                { icon: 'bi-youtube', href: '#' }
-              ].map((social, idx) => (
-                <a key={idx} href={social.href} className="text-white fs-5 border border-white border-opacity-25 rounded-circle d-flex align-items-center justify-content-center hover-bg-white hover-text-maroon transition-all" style={{ width: 40, height: 40 }}>
-                  <i className={`bi ${social.icon}`}></i>
+            <h6 className="footer-heading">{t("footer.social")}</h6>
+            <div className="d-flex gap-2">
+              {SOCIAL.map((s) => (
+                <a key={s.label} href="#" aria-label={s.label} className="social-orb">
+                  <i className={`bi ${s.icon}`} />
                 </a>
               ))}
             </div>
-            <p className="small opacity-50 mt-4">
+            <p className="small footer-muted mt-4 mb-0">
               Connect with us on social media for latest updates and success stories.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Bottom Footer Bar */}
-      <div className="mt-5 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-        <div className="container">
-          <div className="d-flex flex-column flex-md-row justify-content-between align-items-center small opacity-50">
-            <div className="d-flex gap-4 flex-wrap justify-content-center justify-content-md-start mb-2 mb-md-0">
-              <Link href="/matrimoney/aboutus" className="text-reset text-decoration-none hover-link">Privacy Policy</Link>
-              <Link href="/matrimoney/aboutus" className="text-reset text-decoration-none hover-link">Terms of Use</Link>
-              <Link href="/admin" className="text-warning text-decoration-none hover-link fw-semibold">
-                <i className="bi bi-shield-lock-fill me-1"></i> Admin Portal
+      <div className="footer-bottom mt-5">
+        <div className="container py-3">
+          <div className="d-flex flex-column flex-md-row justify-content-between align-items-center small footer-muted gap-2">
+            <div className="d-flex gap-4 flex-wrap justify-content-center">
+              <Link href="/matrimoney/privacy" className="footer-link">{t("footer.privacy")}</Link>
+              <Link href="/matrimoney/terms" className="footer-link">{t("footer.terms")}</Link>
+              <Link href="/matrimoney/safety" className="footer-link">{t("footer.safety")}</Link>
+              <Link href="/admin" className="footer-link" style={{ color: "var(--gold-light)" }}>
+                <i className="bi bi-shield-lock-fill me-1" /> Admin Portal
               </Link>
             </div>
-            <div className="text-center text-md-end">
-              &copy; {new Date().getFullYear()} MatriMoney. All rights reserved.
-            </div>
+            <div>&copy; {new Date().getFullYear()} MatriMoney. Crafted with <span className="gold-text">♥</span> in India.</div>
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .tracking-wider { letter-spacing: 1px; }
-        .hover-link:hover { text-decoration: underline !important; opacity: 1; }
-        .hover-scale:hover { transform: scale(1.05); transition: transform 0.2s; }
-        .hover-bg-white:hover { background-color: white !important; color: var(--brand-maroon, #800020) !important; border-color: white !important; }
-        .transition-all { transition: all 0.3s ease; }
-      `}</style>
     </footer>
   );
 };

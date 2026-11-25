@@ -11,13 +11,15 @@ export default function MatriNav() {
     >
       <div className="container">
         {/* Logo Section */}
-        <Link href="/" className="navbar-brand">
-          <img
-            src="/Image/logo.jpg"
-            alt="Logo"
-            className="img-fluid"
-            style={{ maxWidth: "150px", height: "auto", mixBlendMode: "multiply" }}
-          />
+        <Link href="/" className="navbar-brand brand-logo">
+          <span className="brand-mark" aria-hidden="true" />
+          <span>
+            <span className="brand-word">
+              <span className="brand-matri">Matri</span>
+              <span className="brand-money">Money</span>
+            </span>
+            <span className="brand-tagline">Sacred Unions</span>
+          </span>
         </Link>
 
         {/* Toggle Button for Mobile */}

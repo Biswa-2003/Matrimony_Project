@@ -4,6 +4,8 @@ import { query } from "@/lib/db";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -14,7 +16,7 @@ async function getUserId() {
     c.get("token")?.value || c.get("auth_token")?.value || c.get("auth")?.value;
   if (!token || !process.env.JWT_SECRET) return null;
   try {
-    const d = jwt.verify(token, process.env.JWT_SECRET);
+    const d = await verifyLogin(token);
     return d?.id ?? d?.userId ?? null; // users.id
   } catch {
     return null;
@@ -110,6 +112,7 @@ export async function GET(req) {
    Body: { viewed_user_id: "<users.id of that profile>" }
 ==================================================== */
 export async function POST(req) {
+  { const limited = limitOr429(`track-view:${clientIp(req)}`, 300, 10 * 60 * 1000); if (limited) return limited; }
   const meId = await getUserId();
   if (!meId) {
     return NextResponse.json(

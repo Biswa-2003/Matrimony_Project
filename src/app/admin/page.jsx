@@ -2,22 +2,94 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { Reveal, AnimatedCounter } from '@/app/components/motion';
+
+/** Simple SVG ring chart. segments: [{ value, color, label }] */
+function Ring({ segments, size = 150, stroke = 16, center }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const total = segments.reduce((a, s) => a + s.value, 0) || 1;
+  let offset = 0;
+  return (
+    <div className="position-relative d-inline-block" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f3e8d6" strokeWidth={stroke} />
+        {segments.map((s) => {
+          const len = (s.value / total) * c;
+          const el = (
+            <circle
+              key={s.label}
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={stroke}
+              strokeDasharray={`${len} ${c - len}`}
+              strokeDashoffset={-offset}
+              strokeLinecap={segments.length === 1 ? 'round' : 'butt'}
+              style={{ transition: 'stroke-dasharray 1s ease' }}
+            />
+          );
+          offset += len;
+          return el;
+        })}
+      </svg>
+      <div className="position-absolute top-50 start-50 translate-middle text-center">{center}</div>
+    </div>
+  );
+}
+
+function SignupChart({ data }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
+  return (
+    <div className="signup-chart" role="img" aria-label={`Sign-ups per day: ${data.map((d) => d.count).join(', ')}`}>
+      {data.map((d, i) => {
+        const date = new Date(`${d.day}T00:00:00`);
+        return (
+          <div key={d.day} className="signup-col" title={`${d.count} sign-up${d.count === 1 ? '' : 's'} on ${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}>
+            <span className="signup-val">{d.count || ''}</span>
+            <span className={`signup-bar ${i === data.length - 1 ? 'today' : ''} ${d.count ? '' : 'zero'}`} style={{ height: `${Math.max(4, (d.count / max) * 100)}%`, animationDelay: `${i * 0.04}s` }} />
+            <span className="signup-day">{i % 2 === 1 || i === data.length - 1 ? date.getDate() : ''}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const KPI = [
+  { key: 'totalUsers', label: 'Total Members', icon: 'bi-people', note: (s) => 'Registered accounts' },
+  { key: 'totalProfiles', label: 'Matrimony Profiles', icon: 'bi-person-hearts', note: (s) => `${s.activeProfiles} active right now` },
+  { key: 'verifiedProfiles', label: 'Verified Profiles', icon: 'bi-patch-check', note: (s) => `${s.pendingVerifications} awaiting review` },
+  { key: 'activeSubscriptions', label: 'Premium Members', icon: 'bi-gem', note: (s) => `₹${Number(s.estimatedRevenue || 0).toLocaleString('en-IN')} revenue` },
+];
+
+const PLAN_COLORS = { PLAT: '#3b0a16', GOLD: '#c9a24a', SILVER: '#9ca3af' };
 
 export default function AdminDashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [overview, setOverview] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/admin/overview', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j && setOverview(j))
+      .catch(() => {});
+  }, []);
 
   const fetchStats = async () => {
     try {
-      setLoading(true);
-      const res = await fetch('/api/admin/stats');
+      const res = await fetch('/api/admin/stats', { cache: 'no-store' });
       const json = await res.json();
-      if (res.ok) {
-        setData(json);
-      }
+      if (!res.ok) throw new Error(json.error || 'Failed to load stats');
+      setData(json);
+      setError('');
     } catch (e) {
-      console.error('Failed to load admin stats', e);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -28,368 +100,316 @@ export default function AdminDashboardPage() {
   }, []);
 
   const handleQuickVerify = async (userId, currentStatus) => {
+    setBusyId(userId);
     try {
-      setActionLoading(true);
       const res = await fetch(`/api/admin/users/${userId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_verified: !currentStatus }),
       });
-      if (res.ok) {
-        fetchStats();
-      }
-    } catch (e) {
-      console.error(e);
+      if (res.ok) await fetchStats();
     } finally {
-      setActionLoading(false);
+      setBusyId(null);
     }
   };
 
   if (loading) {
     return (
-      <div className="d-flex flex-column align-items-center justify-content-center py-5">
-        <div className="spinner-border text-danger" role="status" style={{ width: '3rem', height: '3rem' }}>
-          <span className="visually-hidden">Loading...</span>
-        </div>
-        <p className="mt-3 text-muted fw-semibold">Loading live matrimonial metrics...</p>
+      <div className="row g-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="col-12 col-sm-6 col-xl-3">
+            <div className="admin-card p-4 loading-skeleton" style={{ height: 140 }} />
+          </div>
+        ))}
+        <div className="col-12"><div className="admin-card loading-skeleton" style={{ height: 320 }} /></div>
       </div>
     );
   }
 
-  const stats = data?.stats || {
-    totalUsers: 0,
-    totalProfiles: 0,
-    activeProfiles: 0,
-    verifiedProfiles: 0,
-    pendingVerifications: 0,
-    maleProfiles: 0,
-    femaleProfiles: 0,
-    activeSubscriptions: 0,
-    estimatedRevenue: 0,
+  const stats = {
+    totalUsers: 0, totalProfiles: 0, activeProfiles: 0, verifiedProfiles: 0, pendingVerifications: 0,
+    maleProfiles: 0, femaleProfiles: 0, activeSubscriptions: 0, estimatedRevenue: 0,
+    ...(data?.stats || {}),
   };
-
-  const malePercent = stats.totalProfiles > 0 ? Math.round((stats.maleProfiles / stats.totalProfiles) * 100) : 50;
-  const femalePercent = stats.totalProfiles > 0 ? Math.round((stats.femaleProfiles / stats.totalProfiles) * 100) : 50;
-  const verifiedPercent = stats.totalProfiles > 0 ? Math.round((stats.verifiedProfiles / stats.totalProfiles) * 100) : 0;
+  const verifiedPct = stats.totalProfiles ? Math.round((stats.verifiedProfiles / stats.totalProfiles) * 100) : 0;
+  const maxSubs = Math.max(1, ...(data?.plans || []).map((p) => Number(p.subscribers) || 0));
 
   return (
     <div className="container-fluid p-0">
-      {/* Welcome Banner */}
-      <div
-        className="card border-0 text-white p-4 mb-4 shadow-sm"
-        style={{
-          background: 'linear-gradient(135deg, #490B22 0%, #C2185B 50%, #E33183 100%)',
-          borderRadius: '16px',
-        }}
-      >
-        <div className="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
-          <div>
-            <span className="badge bg-white bg-opacity-25 text-white mb-2 px-3 py-1 rounded-pill">
-              ✨ Admin Control Dashboard
-            </span>
-            <h2 className="fw-bold mb-1 font-heading text-white">Welcome back, Administrator</h2>
-            <p className="mb-0 text-white-50">
-              Here is what is happening across MatriMoney today. Review new members, verifications, and subscriptions.
-            </p>
-          </div>
-          <div className="d-flex gap-2">
-            <Link href="/admin/verifications" className="btn btn-light fw-bold px-3 py-2 rounded-pill shadow-sm">
-              <i className="bi bi-patch-check-fill text-danger me-1"></i> Verify Profiles ({stats.pendingVerifications})
-            </Link>
-            <Link href="/admin/users" className="btn btn-outline-light fw-bold px-3 py-2 rounded-pill">
-              <i className="bi bi-person-plus-fill me-1"></i> Manage Members
-            </Link>
-          </div>
-        </div>
-      </div>
+      {error && <div className="alert alert-danger">{error}</div>}
 
-      {/* KPI Stat Cards */}
-      <div className="row g-3 mb-4">
-        {/* Total Users */}
-        <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card admin-card bg-white p-3 h-100">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <span className="text-muted small fw-semibold">TOTAL USERS</span>
-              <div
-                className="rounded-3 d-flex align-items-center justify-content-center text-white"
-                style={{ width: 40, height: 40, background: '#4F46E5' }}
-              >
-                <i className="bi bi-people-fill fs-5"></i>
-              </div>
+      {/* Welcome banner */}
+      <Reveal>
+        <div className="section-maroon position-relative overflow-hidden mb-4 p-4 p-lg-5" style={{ borderRadius: 26, border: '1px solid rgba(232,207,142,.35)' }}>
+          <div className="mandala-deco light" style={{ width: 460, height: 460, right: -120, top: -160 }} aria-hidden="true" />
+          <div className="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-4 position-relative">
+            <div>
+              <span className="eyebrow light mb-2">Namaste, Administrator</span>
+              <h2 className="text-white mb-2" style={{ fontSize: '2.4rem' }}>Your community at a glance</h2>
+              <p className="mb-0 text-white-50" style={{ maxWidth: 520 }}>
+                Review new members, approve verifications and keep an eye on premium memberships — all in one place.
+              </p>
             </div>
-            <h3 className="fw-bold text-dark mb-1">{stats.totalUsers}</h3>
-            <div className="d-flex align-items-center text-success small">
-              <i className="bi bi-arrow-up-right me-1"></i>
-              <span>Registered accounts</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Total Matrimony Profiles */}
-        <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card admin-card bg-white p-3 h-100">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <span className="text-muted small fw-semibold">ACTIVE PROFILES</span>
-              <div
-                className="rounded-3 d-flex align-items-center justify-content-center text-white"
-                style={{ width: 40, height: 40, background: '#E33183' }}
-              >
-                <i className="bi bi-person-hearts fs-5"></i>
-              </div>
-            </div>
-            <h3 className="fw-bold text-dark mb-1">{stats.totalProfiles}</h3>
-            <div className="d-flex align-items-center text-success small">
-              <i className="bi bi-check-circle-fill me-1 text-primary"></i>
-              <span>{stats.activeProfiles} currently active</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Verification Status */}
-        <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card admin-card bg-white p-3 h-100">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <span className="text-muted small fw-semibold">VERIFICATION</span>
-              <div
-                className="rounded-3 d-flex align-items-center justify-content-center text-white"
-                style={{ width: 40, height: 40, background: '#10B981' }}
-              >
-                <i className="bi bi-patch-check-fill fs-5"></i>
-              </div>
-            </div>
-            <h3 className="fw-bold text-dark mb-1">{stats.verifiedProfiles}</h3>
-            <div className="d-flex align-items-center text-warning small">
-              <i className="bi bi-clock-history me-1"></i>
-              <span>{stats.pendingVerifications} awaiting review</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Estimated Revenue & Subscriptions */}
-        <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card admin-card bg-white p-3 h-100">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <span className="text-muted small fw-semibold">ACTIVE SUBSCRIPTIONS</span>
-              <div
-                className="rounded-3 d-flex align-items-center justify-content-center text-white"
-                style={{ width: 40, height: 40, background: '#F59E0B' }}
-              >
-                <i className="bi bi-gem fs-5"></i>
-              </div>
-            </div>
-            <h3 className="fw-bold text-dark mb-1">{stats.activeSubscriptions}</h3>
-            <div className="d-flex align-items-center text-muted small">
-              <i className="bi bi-cash-stack me-1 text-success"></i>
-              <span>₹{stats.estimatedRevenue.toLocaleString('en-IN')} revenue</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics & Quick Overview Section */}
-      <div className="row g-3 mb-4">
-        {/* Gender Demographics */}
-        <div className="col-12 col-lg-6">
-          <div className="card admin-card bg-white p-4 h-100">
-            <h5 className="fw-bold mb-3 d-flex align-items-center gap-2">
-              <i className="bi bi-gender-ambiguous text-primary"></i> Gender Community Ratio
-            </h5>
-            <div className="d-flex justify-content-between mb-2">
-              <span className="fw-semibold text-secondary">
-                <i className="bi bi-gender-male text-primary me-1"></i> Grooms: {stats.maleProfiles} ({malePercent}%)
-              </span>
-              <span className="fw-semibold text-danger">
-                <i className="bi bi-gender-female text-danger me-1"></i> Brides: {stats.femaleProfiles} ({femalePercent}%)
-              </span>
-            </div>
-            <div className="progress" style={{ height: '14px', borderRadius: '10px' }}>
-              <div
-                className="progress-bar"
-                role="progressbar"
-                style={{ width: `${malePercent}%`, backgroundColor: '#3B82F6' }}
-                aria-valuenow={malePercent}
-                aria-valuemin="0"
-                aria-valuemax="100"
-              ></div>
-              <div
-                className="progress-bar"
-                role="progressbar"
-                style={{ width: `${femalePercent}%`, backgroundColor: '#EC4899' }}
-                aria-valuenow={femalePercent}
-                aria-valuemin="0"
-                aria-valuemax="100"
-              ></div>
-            </div>
-
-            <hr className="my-4" />
-
-            <h5 className="fw-bold mb-3 d-flex align-items-center gap-2">
-              <i className="bi bi-shield-check text-success"></i> Profile Trust & Verification
-            </h5>
-            <div className="d-flex justify-content-between mb-2 small text-muted">
-              <span>Verified: {stats.verifiedProfiles}</span>
-              <span>Pending: {stats.pendingVerifications}</span>
-            </div>
-            <div className="progress" style={{ height: '10px', borderRadius: '10px' }}>
-              <div
-                className="progress-bar bg-success"
-                role="progressbar"
-                style={{ width: `${verifiedPercent}%` }}
-              ></div>
-              <div
-                className="progress-bar bg-warning"
-                role="progressbar"
-                style={{ width: `${100 - verifiedPercent}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Membership Plans Snapshot */}
-        <div className="col-12 col-lg-6">
-          <div className="card admin-card bg-white p-4 h-100">
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="fw-bold mb-0 d-flex align-items-center gap-2">
-                <i className="bi bi-stars text-warning"></i> Membership Plans Distribution
-              </h5>
-              <Link href="/admin/subscriptions" className="small text-decoration-none fw-semibold text-danger">
-                Manage Plans &rarr;
+            <div className="d-flex gap-2 flex-wrap">
+              <Link href="/admin/verifications" className="btn btn-gold px-4">
+                <i className="bi bi-patch-check me-1" /> Review {stats.pendingVerifications} Pending
+              </Link>
+              <Link href="/admin/users" className="btn btn-glass px-4">
+                <i className="bi bi-people me-1" /> All Members
               </Link>
             </div>
+          </div>
+        </div>
+      </Reveal>
 
-            <div className="d-flex flex-column gap-3">
-              {data?.plans?.map((plan) => (
-                <div key={plan.code} className="p-3 rounded-3 border bg-light d-flex align-items-center justify-content-between">
-                  <div className="d-flex align-items-center gap-3">
-                    <div
-                      className="rounded-circle d-flex align-items-center justify-content-center text-white fw-bold"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        background:
-                          plan.code === 'PLAT'
-                            ? '#8B5CF6'
-                            : plan.code === 'GOLD'
-                            ? '#F59E0B'
-                            : '#06B6D4',
-                      }}
-                    >
-                      <i className="bi bi-gem"></i>
-                    </div>
-                    <div>
-                      <div className="fw-bold text-dark">{plan.name}</div>
-                      <small className="text-muted">₹{plan.price_inr} • Code: {plan.code}</small>
-                    </div>
-                  </div>
-                  <div className="text-end">
-                    <span className="badge bg-white text-dark border px-3 py-2 rounded-pill fw-bold">
-                      {plan.subscribers} Subscribers
-                    </span>
-                  </div>
+      {/* KPI cards */}
+      <div className="row g-3 mb-4">
+        {KPI.map((k, i) => (
+          <div key={k.key} className="col-12 col-sm-6 col-xl-3">
+            <Reveal delay={i * 0.06} className="h-100">
+              <div className="admin-card kpi-card p-4 h-100">
+                <div className="d-flex justify-content-between align-items-start mb-3">
+                  <span className="kpi-label">{k.label}</span>
+                  <span className="kpi-icon"><i className={`bi ${k.icon}`} /></span>
                 </div>
-              ))}
+                <div className="stat-num mb-1" style={{ fontSize: '2.6rem' }}>
+                  <AnimatedCounter to={Number(stats[k.key]) || 0} duration={1.4} />
+                </div>
+                <small className="text-muted">{k.note(stats)}</small>
+              </div>
+            </Reveal>
+          </div>
+        ))}
+      </div>
+
+      {/* Growth + attention */}
+      <div className="row g-3 mb-4">
+        <div className="col-12 col-lg-8">
+          <Reveal className="h-100">
+            <div className="admin-card p-4 h-100">
+              <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                  <h5 className="mb-1">New Sign-ups</h5>
+                  <small className="text-muted">Registrations over the last 14 days</small>
+                </div>
+                <div className="d-flex gap-4">
+                  {[
+                    ['new_week', 'this week'],
+                    ['active_today', 'active today'],
+                    ['interests_week', 'interests / wk'],
+                  ].map(([k, l]) => (
+                    <div key={k} className="text-end">
+                      <div className="stat-num" style={{ fontSize: '1.7rem' }}>{overview?.activity?.[k] ?? '–'}</div>
+                      <small className="text-muted">{l}</small>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <SignupChart data={overview?.signups14d || []} />
             </div>
-          </div>
+          </Reveal>
+        </div>
+        <div className="col-12 col-lg-4">
+          <Reveal delay={0.05} className="h-100">
+            <div className="admin-card p-4 h-100">
+              <h5 className="mb-1">Needs your attention</h5>
+              <small className="text-muted d-block mb-3">Queues waiting for an admin</small>
+              <div className="d-flex flex-column gap-2">
+                {[
+                  ['pending_verifications', 'Profiles to verify', 'bi-patch-check', '/admin/verifications'],
+                  ['open_reports', 'Open safety reports', 'bi-flag', '/admin/reports'],
+                  ['new_messages', 'New enquiries', 'bi-envelope', '/admin/reports'],
+                  ['pending_stories', 'Stories to approve', 'bi-hearts', '/admin/stories'],
+                ].map(([k, l, icon, href]) => {
+                  const n = Number(overview?.attention?.[k]) || 0;
+                  return (
+                    <Link key={k} href={href} className={`attn-row ${n ? 'hot' : ''}`}>
+                      <span className="attn-icon"><i className={`bi ${icon}`} /></span>
+                      <span className="flex-grow-1">{l}</span>
+                      <span className="attn-count">{overview ? n : '–'}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+              <div className="nav-menu-label p-0 mt-4 mb-2">Website</div>
+              <div className="d-flex flex-wrap gap-2">
+                <Link href="/admin/media" className="btn btn-sm btn-outline-danger"><i className="bi bi-images me-1" />Images</Link>
+                <Link href="/admin/stories" className="btn btn-sm btn-outline-danger"><i className="bi bi-plus-lg me-1" />Story</Link>
+                <Link href="/admin/settings" className="btn btn-sm btn-outline-danger"><i className="bi bi-megaphone me-1" />Announce</Link>
+              </div>
+            </div>
+          </Reveal>
         </div>
       </div>
 
-      {/* Recent Registrations Table */}
-      <div className="card admin-card bg-white p-4">
-        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
-          <div>
-            <h5 className="fw-bold mb-1 font-heading">Recent Member Registrations</h5>
-            <small className="text-muted">Latest individuals who signed up on the matrimony network</small>
-          </div>
-          <Link href="/admin/users" className="btn btn-outline-danger btn-sm rounded-pill px-3 fw-bold">
-            View All Members ({stats.totalUsers}) &rarr;
-          </Link>
+      {/* Analytics */}
+      <div className="row g-3 mb-4">
+        <div className="col-12 col-lg-4">
+          <Reveal className="h-100">
+            <div className="admin-card p-4 h-100 text-center">
+              <h5 className="mb-1 text-start">Brides &amp; Grooms</h5>
+              <small className="text-muted d-block text-start mb-4">Gender balance across profiles</small>
+              <Ring
+                segments={[
+                  { label: 'Grooms', value: stats.maleProfiles, color: '#3b0a16' },
+                  { label: 'Brides', value: stats.femaleProfiles, color: '#c9a24a' },
+                ]}
+                center={<><div className="stat-num" style={{ fontSize: '2rem' }}>{stats.totalProfiles}</div><small className="text-muted">profiles</small></>}
+              />
+              <div className="d-flex justify-content-center gap-4 mt-4 small">
+                <span><span className="legend-dot" style={{ background: '#3b0a16' }} /> Grooms {stats.maleProfiles}</span>
+                <span><span className="legend-dot" style={{ background: '#c9a24a' }} /> Brides {stats.femaleProfiles}</span>
+              </div>
+            </div>
+          </Reveal>
         </div>
 
-        <div className="table-responsive">
-          <table className="table table-hover align-middle mb-0">
-            <thead className="table-light">
-              <tr>
-                <th scope="col" className="text-uppercase small fw-bold">Member</th>
-                <th scope="col" className="text-uppercase small fw-bold">Matri ID</th>
-                <th scope="col" className="text-uppercase small fw-bold">Contact</th>
-                <th scope="col" className="text-uppercase small fw-bold">Gender</th>
-                <th scope="col" className="text-uppercase small fw-bold">Status</th>
-                <th scope="col" className="text-uppercase small fw-bold">Verification</th>
-                <th scope="col" className="text-uppercase small fw-bold text-end">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.recentUsers?.map((u) => {
-                const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email.split('@')[0];
-                return (
-                  <tr key={u.id}>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
-                        {u.photo_url ? (
+        <div className="col-12 col-lg-4">
+          <Reveal delay={0.05} className="h-100">
+            <div className="admin-card p-4 h-100 text-center">
+              <h5 className="mb-1 text-start">Trust Score</h5>
+              <small className="text-muted d-block text-start mb-4">Share of verified profiles</small>
+              <Ring
+                segments={[
+                  { label: 'Verified', value: stats.verifiedProfiles, color: '#1f8a55' },
+                  { label: 'Pending', value: stats.pendingVerifications, color: '#ead9bd' },
+                ]}
+                center={<><div className="stat-num" style={{ fontSize: '2rem' }}>{verifiedPct}%</div><small className="text-muted">verified</small></>}
+              />
+              <Link href="/admin/verifications" className="btn btn-outline-danger btn-sm mt-4 px-4">Open verification queue</Link>
+            </div>
+          </Reveal>
+        </div>
+
+        <div className="col-12 col-lg-4">
+          <Reveal delay={0.1} className="h-100">
+            <div className="admin-card p-4 h-100">
+              <div className="d-flex justify-content-between align-items-center mb-1">
+                <h5 className="mb-0">Membership Plans</h5>
+                <Link href="/admin/subscriptions" className="small text-danger fw-semibold">Manage →</Link>
+              </div>
+              <small className="text-muted d-block mb-4">Active subscribers by plan</small>
+              <div className="d-flex flex-column gap-3">
+                {(data?.plans || []).map((plan) => (
+                  <div key={plan.code}>
+                    <div className="d-flex justify-content-between small mb-1">
+                      <span className="fw-semibold" style={{ color: 'var(--maroon-900)' }}>
+                        <i className="bi bi-gem me-1" style={{ color: PLAN_COLORS[plan.code] || '#7a1530' }} />
+                        {plan.name} <span className="text-muted fw-normal">· ₹{Number(plan.price_inr).toLocaleString('en-IN')}</span>
+                      </span>
+                      <span className="fw-semibold">{plan.subscribers}</span>
+                    </div>
+                    <div className="progress" style={{ height: 8 }}>
+                      <div className="progress-bar" style={{ width: `${(Number(plan.subscribers) / maxSubs) * 100}%`, background: PLAN_COLORS[plan.code] || 'var(--royal)' }} />
+                    </div>
+                  </div>
+                ))}
+                {!data?.plans?.length && <div className="text-muted small">No plans configured yet.</div>}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </div>
+
+      {/* Recent registrations */}
+      <Reveal>
+        <div className="admin-card p-0 overflow-hidden">
+          <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 p-4 pb-3">
+            <div>
+              <h5 className="mb-1">Recent Registrations</h5>
+              <small className="text-muted">The newest members of your community</small>
+            </div>
+            <Link href="/admin/users" className="btn btn-outline-danger btn-sm px-3">
+              View all {stats.totalUsers} members <i className="bi bi-arrow-right ms-1" />
+            </Link>
+          </div>
+          <div className="table-responsive">
+            <table className="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th className="ps-4">Member</th>
+                  <th>Matri ID</th>
+                  <th>Contact</th>
+                  <th>Gender</th>
+                  <th>Status</th>
+                  <th>Verification</th>
+                  <th className="text-end pe-4">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.recentUsers || []).map((u) => {
+                  const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || (u.email || '').split('@')[0];
+                  const fallback = u.gender === 'Male' ? '/images/avatar-male.svg' : '/images/avatar-female.svg';
+                  return (
+                    <tr key={u.id}>
+                      <td className="ps-4">
+                        <div className="d-flex align-items-center gap-3">
                           <img
-                            src={u.photo_url}
-                            alt={fullName}
+                            src={u.photo_url || fallback}
+                            alt=""
                             className="rounded-circle object-fit-cover"
-                            style={{ width: 36, height: 36 }}
+                            style={{ width: 40, height: 40, border: '2px solid var(--gold-light)' }}
+                            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = fallback; }}
                           />
-                        ) : (
-                          <div
-                            className="rounded-circle bg-danger-subtle text-danger fw-bold d-flex align-items-center justify-content-center"
-                            style={{ width: 36, height: 36 }}
-                          >
-                            {fullName.charAt(0).toUpperCase()}
+                          <div>
+                            <div className="fw-semibold" style={{ color: 'var(--maroon-900)' }}>{fullName}</div>
+                            <small className="text-muted text-capitalize">{u.role}</small>
                           </div>
-                        )}
-                        <div>
-                          <div className="fw-semibold text-dark">{fullName}</div>
-                          <small className="text-muted" style={{ fontSize: '0.75rem' }}>{u.role}</small>
                         </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge bg-light text-dark border font-monospace">
-                        {u.matri_id || 'N/A'}
-                      </span>
-                    </td>
-                    <td>
-                      <div>{u.email}</div>
-                      <small className="text-muted">{u.phone || 'No phone'}</small>
-                    </td>
-                    <td>
-                      <span className={`badge ${u.gender === 'Female' ? 'bg-danger-subtle text-danger' : 'bg-primary-subtle text-primary'}`}>
-                        {u.gender || 'Not specified'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${u.profile_active !== false ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary'}`}>
-                        {u.profile_active !== false ? 'Active' : 'Deactivated'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${u.is_verified ? 'bg-success text-white' : 'bg-warning text-dark'}`}>
-                        {u.is_verified ? 'Verified' : 'Pending'}
-                      </span>
-                    </td>
-                    <td className="text-end">
-                      <button
-                        onClick={() => handleQuickVerify(u.id, u.is_verified)}
-                        disabled={actionLoading}
-                        className={`btn btn-sm rounded-pill px-3 ${
-                          u.is_verified ? 'btn-outline-secondary' : 'btn-success'
-                        }`}
-                        title={u.is_verified ? 'Revoke verification' : 'Mark as verified'}
-                      >
-                        <i className={`bi ${u.is_verified ? 'bi-x-circle' : 'bi-check-circle'} me-1`}></i>
-                        {u.is_verified ? 'Unverify' : 'Verify'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td><span className="badge bg-light text-dark border font-monospace">{u.matri_id || '—'}</span></td>
+                      <td>
+                        <div className="small">{u.email}</div>
+                        <small className="text-muted">{u.phone || 'No phone'}</small>
+                      </td>
+                      <td>{u.gender === 'Male' ? 'Groom' : u.gender === 'Female' ? 'Bride' : '—'}</td>
+                      <td>
+                        <span className={`badge rounded-pill ${u.profile_active !== false ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary'}`}>
+                          {u.profile_active !== false ? 'Active' : 'Deactivated'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge rounded-pill ${u.is_verified ? 'badge-gold' : 'bg-warning-subtle text-dark'}`}>
+                          <i className={`bi ${u.is_verified ? 'bi-patch-check-fill' : 'bi-hourglass-split'} me-1`} />
+                          {u.is_verified ? 'Verified' : 'Pending'}
+                        </span>
+                      </td>
+                      <td className="text-end pe-4">
+                        <button
+                          onClick={() => handleQuickVerify(u.id, u.is_verified)}
+                          disabled={busyId === u.id}
+                          className={`btn btn-sm px-3 ${u.is_verified ? 'btn-outline-secondary' : 'btn-primary'}`}
+                        >
+                          {busyId === u.id ? <span className="spinner-border spinner-border-sm" /> : u.is_verified ? 'Revoke' : 'Verify'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!data?.recentUsers?.length && (
+                  <tr><td colSpan={7} className="text-center text-muted py-5">No registrations yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      </Reveal>
+
+      <style jsx>{`
+        .kpi-label { font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+        .kpi-icon {
+          width: 44px; height: 44px; border-radius: 50%;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 1.15rem; color: var(--gold-light); background: var(--royal);
+          box-shadow: 0 0 0 3px #fff, 0 0 0 4px var(--gold);
+        }
+        .kpi-card { position: relative; overflow: hidden; }
+        .kpi-card::after {
+          content: ''; position: absolute; right: -40px; bottom: -40px; width: 130px; height: 130px;
+          background: url('/images/mandala-gold.svg') center / contain no-repeat; opacity: 0.12;
+        }
+        .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+      `}</style>
     </div>
   );
 }

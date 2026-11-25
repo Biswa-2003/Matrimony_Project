@@ -45,7 +45,7 @@ const packages = [
     days: 180,
     contactViews: 240,
     features: ['Ultimate Visibility', 'Personalized Matchmaking', 'Guaranteed Introductions'],
-    color: '#E33183', // Brand Pink
+    color: '#a3123a', // Brand Pink
     icon: <BsStars /> // Reuse icon or find appropriate one
   },
 ];
@@ -53,7 +53,8 @@ const packages = [
 export default function MatrimonyPackagePage() {
   const [loadingCode, setLoadingCode] = useState(null);
   const [active, setActive] = useState(null);
-  const [paymentSuccess, setPaymentSuccess] = useState(''); // ✅ New State
+  const [paymentSuccess, setPaymentSuccess] = useState('');
+  const [paymentError, setPaymentError] = useState('');
 
   useEffect(() => { refreshActive(); }, []);
 
@@ -81,27 +82,69 @@ export default function MatrimonyPackagePage() {
     });
   }
 
+  // coupons: { CODE, perPlan: { PLAN_CODE: { total, discount } } }
+  const [couponInput, setCouponInput] = useState('');
+  const [coupon, setCoupon] = useState(null);
+  const [couponMsg, setCouponMsg] = useState(null);
+  const [couponBusy, setCouponBusy] = useState(false);
+
+  async function applyCoupon(e) {
+    e?.preventDefault();
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    setCouponBusy(true);
+    setCouponMsg(null);
+    const perPlan = {};
+    let lastError = '';
+    for (const p of packages) {
+      try {
+        const r = await fetch('/api/coupons/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, plan_code: p.code }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) perPlan[p.code] = { total: j.total, discount: j.discount, description: j.description };
+        else lastError = j.error || 'Invalid coupon';
+        if (r.status === 401 || r.status === 429) break;
+      } catch { lastError = 'Could not check the coupon.'; }
+    }
+    setCouponBusy(false);
+    if (Object.keys(perPlan).length) {
+      setCoupon({ code, perPlan });
+      const n = Object.keys(perPlan).length;
+      setCouponMsg({ ok: true, text: `${code} applied${n < packages.length ? ` to ${n} plan${n > 1 ? 's' : ''}` : ''}. Discounted prices are shown below.` });
+    } else {
+      setCoupon(null);
+      setCouponMsg({ ok: false, text: lastError || 'This coupon code isn\'t valid.' });
+    }
+  }
+
   async function handlePay(pkg) {
     try {
       setLoadingCode(pkg.code);
+      setPaymentError('');
 
       const res = await fetch('/api/payments/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_code: pkg.code })
+        body: JSON.stringify({ plan_code: pkg.code, coupon_code: coupon?.perPlan?.[pkg.code] ? coupon.code : undefined })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create order');
+
+      if (data.free) {
+        setPaymentSuccess('Coupon applied — your plan is now active! 💎');
+        await refreshActive();
+        return;
+      }
 
       if (data.test) {
         // Simulate payment for test mode
         const sim = await fetch('/api/payments/simulate-capture', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-test-secret': process.env.NEXT_PUBLIC_TEST_HEADER || ''
-          },
-          body: JSON.stringify({ plan_code: pkg.code })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan_code: pkg.code, coupon_code: coupon?.perPlan?.[pkg.code] ? coupon.code : undefined })
         });
         const j = await sim.json().catch(() => ({}));
         if (!sim.ok) throw new Error(j.error || 'Simulation failed');
@@ -121,16 +164,28 @@ export default function MatrimonyPackagePage() {
         name: 'MatriMoney',
         description: `Upgrade to ${pkg.title}`,
         order_id: data.orderId,
-        handler: async function () {
-          // Give server a moment to process webhook or optimistic update
-          setTimeout(refreshActive, 3000);
-          setPaymentSuccess('Payment received. Activating your plan…');
+        theme: { color: '#5a0f22' },
+        handler: async function (response) {
+          // Server verifies Razorpay's signature before activating the plan
+          try {
+            const v = await fetch('/api/payments/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(response),
+            });
+            const vj = await v.json().catch(() => ({}));
+            if (!v.ok) throw new Error(vj.error || 'Payment verification failed');
+            setPaymentSuccess('Payment successful — your plan is now active! 💎');
+            await refreshActive();
+          } catch (err) {
+            setPaymentError(err.message);
+          }
         }
       };
       const rzp = new window.Razorpay(options);
       rzp.open();
     } catch (e) {
-      alert(e.message);
+      setPaymentError(e.message);
     } finally {
       setLoadingCode(null);
     }
@@ -144,8 +199,8 @@ export default function MatrimonyPackagePage() {
         {/* Header Section */}
         <div className="header-section text-center text-white mb-5 position-relative overflow-hidden">
           {/* Decorative Circles */}
-          <div className="position-absolute top-0 start-0 translate-middle rounded-circle bg-white opacity-10" style={{ width: 300, height: 300 }}></div>
-          <div className="position-absolute bottom-0 end-0 translate-middle rounded-circle bg-white opacity-10" style={{ width: 400, height: 400 }}></div>
+          <div className="mandala-deco light" style={{ width: 420, height: 420, left: -140, top: -160 }} aria-hidden="true"></div>
+          <div className="mandala-deco light" style={{ width: 520, height: 520, right: -180, bottom: -260 }} aria-hidden="true"></div>
 
           <div className="container py-5 position-relative z-1">
             <span className="badge bg-white text-maroon rounded-pill px-3 py-2 mb-3 shadow-sm fw-bold tracking-wide">
@@ -185,6 +240,21 @@ export default function MatrimonyPackagePage() {
             </div>
           )}
 
+          {/* Coupon */}
+          <form className="coupon-box" onSubmit={applyCoupon}>
+            <label className="small fw-semibold text-muted mb-1 d-block"><i className="bi bi-ticket-perforated me-1" />Have a coupon code?</label>
+            <div className="input-group">
+              <input className="form-control text-uppercase font-monospace" placeholder="e.g. DIWALI25" value={couponInput}
+                onChange={(e) => setCouponInput(e.target.value)} maxLength={30} aria-label="Coupon code" />
+              {coupon ? (
+                <button type="button" className="btn btn-outline-secondary" onClick={() => { setCoupon(null); setCouponMsg(null); setCouponInput(''); }}>Remove</button>
+              ) : (
+                <button type="submit" className="btn btn-primary px-4" disabled={couponBusy || !couponInput.trim()}>{couponBusy ? 'Checking…' : 'Apply'}</button>
+              )}
+            </div>
+            {couponMsg && <div className={couponMsg.ok ? 'coupon-ok' : 'coupon-err'}><i className={`bi ${couponMsg.ok ? 'bi-check-circle' : 'bi-x-circle'} me-1`} />{couponMsg.text}</div>}
+          </form>
+
           {/* Packages Grid */}
           <div className="row justify-content-center g-4">
             {packages.map((pkg, idx) => (
@@ -211,8 +281,18 @@ export default function MatrimonyPackagePage() {
                   <div className="card-body px-4 text-center d-flex flex-column">
                     {/* Price */}
                     <div className="my-3">
-                      <h2 className="display-5 fw-bold text-dark mb-0">₹{pkg.price.toLocaleString()}</h2>
-                      <span className="text-muted small fw-semibold">+ 18% GST</span>
+                      {coupon?.perPlan?.[pkg.code] ? (
+                        <>
+                          <div className="text-muted text-decoration-line-through small">₹{pkg.price.toLocaleString()} + GST</div>
+                          <h2 className="display-5 fw-bold text-dark mb-0">₹{Math.round(coupon.perPlan[pkg.code].total / 100).toLocaleString('en-IN')}</h2>
+                          <span className="badge rounded-pill bg-success-subtle text-success">You save ₹{Math.round(coupon.perPlan[pkg.code].discount / 100).toLocaleString('en-IN')} + GST · incl. GST</span>
+                        </>
+                      ) : (
+                        <>
+                          <h2 className="display-5 fw-bold text-dark mb-0">₹{pkg.price.toLocaleString()}</h2>
+                          <span className="text-muted small fw-semibold">+ 18% GST</span>
+                        </>
+                      )}
                     </div>
 
                     {/* Duration & Views */}
@@ -258,6 +338,14 @@ export default function MatrimonyPackagePage() {
       </div>
 
       {/* SUCCESS MODAL ANIMATION */}
+      {paymentError && (
+        <div className="position-fixed bottom-0 start-50 translate-middle-x mb-4 alert alert-danger shadow-lg d-flex align-items-center gap-3" style={{ zIndex: 9999, maxWidth: 520 }} role="alert">
+          <i className="bi bi-exclamation-circle fs-5" />
+          <span className="flex-grow-1">{paymentError}</span>
+          <button type="button" className="btn-close" aria-label="Close" onClick={() => setPaymentError('')} />
+        </div>
+      )}
+
       {paymentSuccess && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center fade-in-overlay" style={{ zIndex: 9999, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}>
           <div className="bg-white rounded-4 p-5 shadow-lg text-center scale-in-center position-relative overflow-hidden" style={{ minWidth: 350, maxWidth: '90%' }}>
@@ -289,17 +377,17 @@ export default function MatrimonyPackagePage() {
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
         .page-surface {
-            background-color: #f4f7fa;
+            background-color: var(--ivory);
             min-height: 100vh;
         }
 
         .header-section {
-            background: linear-gradient(135deg, var(--brand-maroon) 0%, #a01040 100%);
+            background: url('/images/paisley-light.svg') repeat, radial-gradient(120% 120% at 50% 0%, #7a1530 0%, #3b0a16 60%, #1c030b 100%);
             border-bottom-left-radius: 50px;
             border-bottom-right-radius: 50px;
             padding-bottom: 6rem !important; /* Extra padding for overlap */
         }
-        .text-maroon { color: var(--brand-maroon, #800020) !important; }
+        .text-maroon { color: var(--brand-maroon, #5a0f22) !important; }
         .letter-spacing-1 { letter-spacing: 1px; }
         
         .hover-lift {

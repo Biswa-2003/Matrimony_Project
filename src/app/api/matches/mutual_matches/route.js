@@ -5,7 +5,7 @@ import { buildCommonParts, normalizeWhereParts, respondCountOrList } from "../_c
 export async function GET(req) {
   const me = await getAuthUser();
   const sp = new URL(req.url).searchParams;
-  const meId = me?.id || sp.get("me");
+  const meId = me?.id; // identity comes only from the verified session cookie
 
   if (!meId) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

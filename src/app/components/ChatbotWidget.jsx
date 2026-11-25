@@ -164,7 +164,7 @@ export default function ChatbotWidget() {
                         right: 20,
                         width: 60,
                         height: 60,
-                        background: 'linear-gradient(135deg, #E33183, #800020)',
+                        background: 'linear-gradient(135deg, #a3123a, #5a0f22)',
                         border: 'none',
                         zIndex: 1000,
                         cursor: 'pointer',
@@ -191,7 +191,7 @@ export default function ChatbotWidget() {
                     }}
                 >
                     {/* Header */}
-                    <div className="p-3 text-white d-flex justify-content-between align-items-center" style={{ background: 'linear-gradient(135deg, #E33183, #800020)' }}>
+                    <div className="p-3 text-white d-flex justify-content-between align-items-center" style={{ background: 'linear-gradient(135deg, #a3123a, #5a0f22)' }}>
                         <div className="d-flex align-items-center gap-2">
                             <i className="bi bi-robot" style={{ fontSize: '1.5rem' }}></i>
                             <div>

@@ -35,6 +35,10 @@ jest.mock('@/lib/password', () => ({
     validateStrongPassword: jest.fn(),
 }));
 
+jest.mock('@/lib/members', () => ({
+    newMatriId: jest.fn(async () => 'DU123456'),
+}));
+
 describe('POST /api/register', () => {
     beforeEach(() => {
         jest.clearAllMocks();
@@ -131,6 +135,9 @@ describe('POST /api/register', () => {
         expect(res.status).toBe(211 === 211 ? 201 : 201); // intentional check
         const data = await res.json();
         expect(data.message).toBe('User registered successfully');
+        // every new profile must get a public Matri ID (profiles without one can't be opened)
+        const profileInsert = query.mock.calls.find(([sql]) => /INSERT INTO matrimony_profiles/.test(sql));
+        expect(profileInsert[1]).toContain('DU123456');
     });
 
     it('should return 500 on error', async () => {

@@ -379,6 +379,14 @@ export default function ProfileEdit() {
   const [editSection, setEditSection] = useState(null);
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // ---------- Data ----------
   const fetchUserInfo = async () => {
@@ -525,6 +533,7 @@ export default function ProfileEdit() {
       };
     }
 
+    setSaving(true);
     try {
       const res = await fetch('/api/edit-profile', {
         method: 'POST',
@@ -537,7 +546,7 @@ export default function ProfileEdit() {
       if (!res.ok || body?.error) {
         const msg = body?.error || `Request failed (${res.status})`;
         console.error('❌ Save failed:', msg, body);
-        alert(`❌ Save failed: ${msg}`);
+        setToast(`Could not save: ${msg}`);
         return;
       }
 
@@ -568,9 +577,12 @@ export default function ProfileEdit() {
 
       setProfile(next);
       setEditSection(null);
+      setToast('Saved — your profile is updated');
     } catch (error) {
       console.error('❌ Error calling backend:', error);
-      alert('❌ Save failed due to a network error.');
+      setToast('Save failed due to a network error.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -580,336 +592,343 @@ export default function ProfileEdit() {
   };
 
   // ---------- UI helpers ----------
-  const renderTextSection = (sectionName, displayName) => (
-    <Card className="mt-3 pe-card" key={sectionName}>
-      <Card.Header className="d-flex justify-content-between align-items-center">
-        <strong>{displayName}</strong>
-        {editSection !== sectionName && (
-          <Button size="sm" onClick={() => handleEditClick(sectionName)}>
-            Edit
-          </Button>
-        )}
-      </Card.Header>
-      <Card.Body>
-        {editSection === sectionName ? (
-          <>
-            <Form.Control
-              as="textarea"
-              rows={4}
-              name={sectionName}
-              value={typeof formData === 'string' ? formData : ''}
-              onChange={(e) => setFormData(e.target.value)}
-            />
-            <div className="mt-3">
-              <Button variant="secondary" className="me-2" onClick={handleCancel}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={handleSave}>
-                Update
-              </Button>
-            </div>
-          </>
-        ) : (
-          <p>{profile[sectionName] || <em>No data available.</em>}</p>
-        )}
-      </Card.Body>
-    </Card>
+  const FIELD_LABELS = {
+    profileFor: 'Profile created for', bodyType: 'Body type', complexion: 'Complexion', status: 'Employment status',
+    weight: 'Weight', marital: 'Marital status', drinking: 'Drinking', smoking: 'Smoking', dob: 'Date of birth',
+    time: 'Time of birth', age: 'Age', height: 'Height', tongue: 'Mother tongue', eating: 'Diet',
+    religion: 'Religion', caste: 'Community / Caste', gothram: 'Gothram', rashi: 'Rashi (Moon sign)', star: 'Nakshatra (Star)', manglik: 'Manglik',
+    country: 'Country', state: 'State', city: 'City', citizenship: 'Citizenship',
+    education: 'Highest education', college: 'College / University', detail: 'Education details', job: 'Occupation', role: 'Job role', income: 'Annual income',
+    values: 'Family values', type: 'Family type', origin: 'Native place type', location: 'Family location',
+    father: "Father's occupation", mother: "Mother's occupation", brothers: 'Brothers', sisters: 'Sisters',
+    ageFrom: 'Age from', ageTo: 'Age to', heightFrom: 'Height from', heightTo: 'Height to', degree: 'Education',
+    physical: 'Physical status',
+  };
+  const labelFor = (key) => FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
+
+  const SECTIONS = [
+    { key: 'aboutMyself', title: 'About Myself', icon: 'bi-person-heart', text: true, hint: 'Share your personality, values, hobbies and what makes you happy. Profiles with a warm introduction get far more interests.' },
+    { key: 'basic', title: 'Basic Information', icon: 'bi-person-vcard' },
+    { key: 'religionInfo', title: 'Religion & Horoscope', icon: 'bi-flower1' },
+    { key: 'location', title: 'Location', icon: 'bi-geo-alt' },
+    { key: 'professional', title: 'Education & Career', icon: 'bi-mortarboard' },
+    { key: 'aboutFamily', title: 'About My Family', icon: 'bi-house-heart', text: true, hint: 'Describe your family — parents, siblings, traditions and the values you grew up with.' },
+    { key: 'family', title: 'Family Details', icon: 'bi-people' },
+    { key: 'partnerPref', title: 'Partner Preferences', icon: 'bi-hearts' },
+  ];
+
+  const isFilled = (v) => v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '-';
+  const sectionStats = (key) => {
+    const v = profile[key];
+    if (typeof v === 'string' || v == null) return { done: isFilled(v) && String(v).trim().length >= 30 ? 1 : 0, total: 1 };
+    const entries = Object.entries(v).filter(([, x]) => typeof x !== 'object' || x === null);
+    return { done: entries.filter(([, x]) => isFilled(x)).length, total: entries.length || 1 };
+  };
+  const completion = (() => {
+    const s = SECTIONS.map((x) => sectionStats(x.key));
+    const pct = Math.round((s.reduce((a, b) => a + b.done / b.total, 0) / s.length) * 100);
+    return Math.min(100, pct + (profile.photo?.[0] && !/default\.jpg$/.test(profile.photo[0]) ? 0 : -5));
+  })();
+  const tips = SECTIONS.filter((x) => sectionStats(x.key).done / sectionStats(x.key).total < 0.6).slice(0, 3);
+
+  const formatValue = (sectionName, key, value) => {
+    if (!isFilled(value)) return null;
+    if (/height/i.test(key)) return prettyHeight(value);
+    if (/income/i.test(key)) {
+      const opts = FIELD_OPTIONS?.[sectionName]?.income;
+      const idx = Number(value);
+      if (Array.isArray(opts) && !Number.isNaN(idx) && opts[idx]) return opts[idx];
+    }
+    if (key === 'dob') {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+    return String(value);
+  };
+
+  const EditActions = (
+    <div className="d-flex gap-2 justify-content-end mt-3 pt-3" style={{ borderTop: '1px solid #f1e6d4' }}>
+      <button type="button" className="btn btn-outline-secondary px-4" onClick={handleCancel} disabled={saving}>Cancel</button>
+      <button type="button" className="btn btn-primary px-4" onClick={handleSave} disabled={saving}>
+        {saving ? <><span className="spinner-border spinner-border-sm me-2" />Saving…</> : <><i className="bi bi-check2 me-1" />Save changes</>}
+      </button>
+    </div>
   );
 
-  const renderSection = (sectionName, displayName) => (
-    <Card className="mt-3 pe-card" key={sectionName}>
-      <Card.Header className="d-flex justify-content-between align-items-center">
-        <strong>{displayName}</strong>
-        {editSection !== sectionName && (
-          <Button size="sm" onClick={() => handleEditClick(sectionName)}>
-            Edit
-          </Button>
-        )}
-      </Card.Header>
-      <Card.Body>
-        {editSection === sectionName ? (
-          <>
-            <Form>
-              <Row>
-                {Object.entries(formData || {}).map(([key, value]) => {
-                  const label = key
-                    .replace(/([A-Z])/g, ' $1')
-                    .replace(/^./, (s) => s.toUpperCase());
+  const SectionShell = ({ s, children }) => { // called as a function, not <SectionShell/>
+    const st = sectionStats(s.key);
+    const complete = st.done / st.total >= 0.99;
+    return (
+      <section key={s.key} id={`sec-${s.key}`} className={`pe-section ${editSection === s.key ? 'editing' : ''}`}>
+        <header className="pe-section-head">
+          <span className="pe-section-icon"><i className={`bi ${s.icon}`} /></span>
+          <div className="flex-grow-1">
+            <h3>{s.title}</h3>
+            <small className={complete ? 'text-success' : 'text-muted'}>
+              {complete ? <><i className="bi bi-check-circle-fill me-1" />Complete</> : s.text ? 'Not written yet' : `${st.done} of ${st.total} filled`}
+            </small>
+          </div>
+          {editSection !== s.key && (
+            <button type="button" className="btn btn-sm btn-outline-danger px-3" onClick={() => handleEditClick(s.key)} disabled={Boolean(editSection)}>
+              <i className="bi bi-pencil me-1" />Edit
+            </button>
+          )}
+        </header>
+        <div className="pe-section-body">{children}</div>
+      </section>
+    );
+  };
 
-                  // Height selectors for Basic and Partner Pref sections
-                  const isBasicHeight =
-                    sectionName === 'basic' && key === 'height';
-                  const isPrefHeight =
-                    sectionName === 'partnerPref' &&
-                    (key === 'heightFrom' || key === 'heightTo');
+  const renderTextSection = (s) => (
+    SectionShell({ s, children: (<>
+      {editSection === s.key ? (
+        <>
+          <p className="small text-muted mb-2"><i className="bi bi-lightbulb me-1 text-gold" />{s.hint}</p>
+          <textarea
+            className="form-control"
+            rows={6}
+            maxLength={1500}
+            value={typeof formData === 'string' ? formData : ''}
+            onChange={(e) => setFormData(e.target.value)}
+            autoFocus
+          />
+          <div className="small text-muted text-end mt-1">{(typeof formData === 'string' ? formData : '').length}/1500</div>
+          {EditActions}
+        </>
+      ) : profile[s.key] ? (
+        <p className="mb-0 pe-prose">{profile[s.key]}</p>
+      ) : (
+        <button type="button" className="pe-empty" onClick={() => handleEditClick(s.key)} disabled={Boolean(editSection)}>
+          <i className="bi bi-plus-circle me-2" />Write a few lines — {s.hint.split('.')[0].toLowerCase()}.
+        </button>
+      )}
+    </>) })
+  );
 
-                  // 1) Height select
-                  if (isBasicHeight || isPrefHeight) {
-                    return (
-                      <Form.Group as={Col} md={6} key={key} className="mb-3">
-                        <Form.Label>{label}</Form.Label>
-                        <Form.Select
-                          name={key}
-                          value={toHeightCodeAny(value) || ''}
-                          onChange={handleChange}
-                        >
-                          <option value="">-- Select --</option>
-                          {HEIGHT_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </Form.Select>
-                      </Form.Group>
-                    );
-                  }
-
-                  // 2) Dropdowns for configured fields
-                  const optionsForField =
-                    FIELD_OPTIONS?.[sectionName]?.[key] || null;
-
-                  if (optionsForField) {
-                    return (
-                      <Form.Group as={Col} md={6} key={key} className="mb-3">
-                        <Form.Label>{label}</Form.Label>
-                        <Form.Select
-                          name={key}
-                          value={value || ''}
-                          onChange={handleChange}
-                        >
-                          <option value="">-- Select --</option>
-                          {optionsForField.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </Form.Select>
-                      </Form.Group>
-                    );
-                  }
-
-                  // 3) Default text input
-                  return (
-                    <Form.Group as={Col} md={6} key={key} className="mb-3">
-                      <Form.Label>{label}</Form.Label>
-                      <Form.Control
-                        type="text"
-                        name={key}
-                        value={value || ''}
-                        onChange={handleChange}
-                      />
-                    </Form.Group>
-                  );
-                })}
-              </Row>
-            </Form>
-            <Button variant="secondary" className="me-2" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSave}>
-              Update
-            </Button>
-          </>
-        ) : (
-          <Row>
-            {profile[sectionName] && typeof profile[sectionName] === 'object' ? (
-              Object.entries(profile[sectionName]).map(([key, value]) => {
-                // Skip nested objects
-                if (typeof value === 'object' && value !== null) return null;
-
-                const label = key
-                  .replace(/([A-Z])/g, ' $1')
-                  .replace(/^./, (s) => s.toUpperCase());
-
-                let displayVal = value || '-';
-
-                // Height formatting
-                if (/height/i.test(key)) {
-                  displayVal = prettyHeight(value);
-                }
-                // Income formatting (lookup in FIELD_OPTIONS if available)
-                else if (/income/i.test(key)) {
-                  const opts = FIELD_OPTIONS?.[sectionName]?.income;
-                  if (opts && Array.isArray(opts)) {
-                    // check if value is a valid index
-                    const idx = Number(value);
-                    if (!isNaN(idx) && opts[idx]) {
-                      displayVal = opts[idx];
-                    } else {
-                      // otherwise just show value (it might be a string already)
-                      displayVal = value || '-';
-                    }
-                  }
-                }
-
-                return (
-                  <Col md={6} key={key} className="mb-2">
-                    <strong>{label}:</strong>{' '}
-                    {displayVal}
-                  </Col>
-                );
-              })
-            ) : (
-              <Col>
-                <em>No data found</em>
-              </Col>
-            )}
-          </Row>
-        )}
-      </Card.Body>
-    </Card>
+  const renderSection = (s) => (
+    SectionShell({ s, children: (<>
+      {editSection === s.key ? (
+        <>
+          <div className="row g-3">
+            {Object.entries(formData || {}).map(([key, value]) => {
+              const isHeight = (s.key === 'basic' && key === 'height') || (s.key === 'partnerPref' && (key === 'heightFrom' || key === 'heightTo'));
+              const options = FIELD_OPTIONS?.[s.key]?.[key] || null;
+              return (
+                <div className="col-md-6" key={key}>
+                  <label className="form-label" htmlFor={`f-${s.key}-${key}`}>{labelFor(key)}</label>
+                  {isHeight ? (
+                    <select id={`f-${s.key}-${key}`} className="form-select" name={key} value={toHeightCodeAny(value) || ''} onChange={handleChange}>
+                      <option value="">Select</option>
+                      {HEIGHT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  ) : options ? (
+                    <select id={`f-${s.key}-${key}`} className="form-select" name={key} value={value || ''} onChange={handleChange}>
+                      <option value="">Select</option>
+                      {options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      id={`f-${s.key}-${key}`}
+                      type={key === 'dob' ? 'date' : key === 'time' ? 'time' : 'text'}
+                      className="form-control"
+                      name={key}
+                      value={key === 'dob' && value ? String(value).slice(0, 10) : value || ''}
+                      onChange={handleChange}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {EditActions}
+        </>
+      ) : (
+        <div className="row g-3">
+          {Object.entries(profile[s.key] || {})
+            .filter(([, v]) => typeof v !== 'object' || v === null)
+            .map(([key, value]) => {
+              const shown = formatValue(s.key, key, value);
+              return (
+                <div className="col-6 col-md-4" key={key}>
+                  <div className="pe-fact">
+                    <small>{labelFor(key)}</small>
+                    <div className={shown ? '' : 'missing'}>{shown || 'Not added'}</div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </>) })
   );
 
   if (loading) {
     return (
-      <Container className="py-4" style={{ paddingTop: 'var(--header-height, 80px)' }}>
-        <div className="text-center">
-          <div className="spinner-border" role="status">
-            <span className="visually-hidden">Loading...</span>
+      <div className="profileedit-surface py-5">
+        <div className="container">
+          <div className="luxe-card loading-skeleton mb-4" style={{ height: 220 }} />
+          <div className="row g-4">
+            <div className="col-lg-3"><div className="luxe-card loading-skeleton" style={{ height: 360 }} /></div>
+            <div className="col-lg-9"><div className="luxe-card loading-skeleton" style={{ height: 520 }} /></div>
           </div>
-          <p className="mt-2">Loading profile...</p>
         </div>
-      </Container>
+      </div>
     );
   }
 
   const profilePhoto = resolvePhoto(profile.photo?.[0]);
+  const hasPhoto = profile.photo?.[0] && !/default\.jpg$/.test(profile.photo[0]);
+  const chips = [
+    profile.basic?.age && `${profile.basic.age} yrs`,
+    profile.basic?.height && prettyHeight(profile.basic.height),
+    profile.religionInfo?.religion || profile.religion,
+    profile.religionInfo?.caste || profile.caste,
+    [profile.location?.city, profile.location?.state].filter(Boolean).join(', '),
+    profile.professional?.job,
+  ].filter((x) => isFilled(x));
 
   return (
-    <>
-      <br />
-      <br />
-      {/* Page surface wrapper with soft background */}
-      <div className="profileedit-surface">
-        <Container className="py-4" style={{ paddingTop: 'var(--header-height, 80px)' }}>
-          <Card className="mb-4 pe-card">
-            <Card.Body>
-              <Row className="align-items-center">
-                <Col md={2} className="mb-3 mb-md-0">
-                  <div className="pe-avatar d-flex align-items-center justify-content-center">
-                    <Image
-                      src={profilePhoto}
-                      alt="Profile"
-                      width={160}
-                      height={160}
-                      className="rounded"
-                      unoptimized
-                      style={{ objectFit: 'cover' }}
-                    />
-                  </div>
-                </Col>
+    <div className="profileedit-surface pb-5">
+      {/* Header band */}
+      <section className="pe-hero">
+        <div className="mandala-deco light" style={{ width: 520, height: 520, right: -140, top: -200 }} aria-hidden="true" />
+      </section>
 
-                <Col md={8}>
-                  <h5 className="text-primary fw-bold mb-1">{profile.name || 'No Name'}</h5>
-                  <p className="mb-2"><strong>ID:</strong> {profile.matri_id || '-'}</p>
-
-                  <p className="mb-2">
-                    {profile.religion || profile.religionInfo?.religion || ''}<br />
-                    {profile.caste || profile.religionInfo?.caste || ''}
-                  </p>
-
-                  <p className="text-success fw-bold mb-0">
-                    📱 {profile.mobile || '-'} {profile.verified && '(✔ Verified)'}
-                  </p>
-                  <div className="d-flex flex-wrap gap-2 text-muted small mt-2">
-                    <span className="badge bg-light text-dark border">Age: {profile.basic?.age || '-'}</span>
-                    <span className="badge bg-light text-dark border">Height: {prettyHeight(profile.basic?.height)}</span>
-                    <span className="badge bg-light text-dark border">{profile.religion || '-'}</span>
-                    <span className="badge bg-light text-dark border">{profile.location?.city || '-'}, {profile.location?.state || '-'}</span>
-                  </div>
-                </Col>
-
-                <Col md={2} className="text-end">
-                  <Button
-                    variant="outline-primary"
-                    onClick={() => router.push('/dashboard/myhome')}
-                    className="btn-sm fw-bold border-2"
-                  >
-                    Back to Board
-                  </Button>
-                </Col>
-              </Row>
-            </Card.Body>
-          </Card>
-
-          <Row>
-            {/* LEFT COLUMN */}
-            <Col lg={4}>
-              {renderTextSection('aboutMyself', 'About Myself')}
-              {renderTextSection('aboutFamily', 'About Family')}
-            </Col>
-
-            {/* RIGHT COLUMN */}
-            <Col lg={8}>
-              {renderSection('basic', 'Basic Information')}
-              {renderSection('religionInfo', 'Religious Information')}
-              {renderSection('location', 'Location Details')}
-              {renderSection('professional', 'Education & Career')}
-              {renderSection('family', 'Family Details')}
-              {renderSection('partnerPref', 'Partner Preference')}
-            </Col>
-          </Row>
-        </Container>
+      <div className="container pe-head">
+        <div className="luxe-card p-4 p-lg-5">
+          <div className="row g-4 align-items-center">
+            <div className="col-auto">
+              <div className="pe-photo">
+                <img
+                  src={hasPhoto ? profilePhoto : '/images/avatar-male.svg'}
+                  alt="Your profile"
+                  onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/images/avatar-male.svg'; }}
+                />
+                <a href="/dashboard/upload-photo" className="pe-photo-btn" title="Change photo"><i className="bi bi-camera" /></a>
+              </div>
+            </div>
+            <div className="col">
+              <span className="eyebrow" style={{ fontSize: '0.62rem' }}>My Profile · {profile.matri_id || '—'}</span>
+              <h1 className="mb-2" style={{ fontSize: 'clamp(2rem, 3.6vw, 2.8rem)' }}>
+                {profile.name || 'Your Name'}
+                {profile.verified && <span className="verified-chip position-static ms-2 align-middle" style={{ fontSize: '0.72rem' }}><i className="bi bi-patch-check-fill" /> Verified</span>}
+              </h1>
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                {chips.map((c) => <span key={c} className="profile-chip">{c}</span>)}
+              </div>
+              <div className="d-flex flex-wrap gap-2">
+                {profile.matri_id && (
+                  <a href={`/matrimoney/profile-details/${profile.matri_id}`} className="btn btn-primary btn-sm px-3">
+                    <i className="bi bi-eye me-1" />Preview as others see it
+                  </a>
+                )}
+                <a href="/dashboard/upload-photo" className="btn btn-outline-danger btn-sm px-3"><i className="bi bi-images me-1" />Manage photos</a>
+                <a href="/dashboard/profile-setting" className="btn btn-outline-secondary btn-sm px-3"><i className="bi bi-shield-lock me-1" />Privacy</a>
+              </div>
+            </div>
+            <div className="col-12 col-lg-3">
+              <div className="pe-strength">
+                <div className="d-flex justify-content-between align-items-end mb-2">
+                  <span className="small fw-semibold" style={{ color: 'var(--maroon-900)' }}>Profile strength</span>
+                  <span className="stat-num" style={{ fontSize: '2rem' }}>{Math.max(0, completion)}%</span>
+                </div>
+                <div className="progress" style={{ height: 8 }}>
+                  <div className="progress-bar" style={{ width: `${Math.max(0, completion)}%`, background: completion >= 80 ? 'var(--foil)' : 'var(--royal)' }} />
+                </div>
+                <small className="text-muted d-block mt-2">
+                  {completion >= 80 ? 'Excellent! Your profile stands out.' : 'Complete profiles receive noticeably more interests.'}
+                </small>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
+      <div className="container mt-4">
+        <div className="row g-4">
+          <aside className="col-lg-3">
+            <nav className="luxe-card p-3 pe-nav">
+              <div className="nav-menu-label p-0 px-2 mb-2">Sections</div>
+              {SECTIONS.map((s) => {
+                const st = sectionStats(s.key);
+                const pct = st.done / st.total;
+                return (
+                  <a key={s.key} href={`#sec-${s.key}`} className="pe-nav-link">
+                    <i className={`bi ${s.icon}`} />
+                    <span className="flex-grow-1">{s.title}</span>
+                    {pct >= 0.99 ? <i className="bi bi-check-circle-fill text-success" /> : <span className="pe-nav-pct">{Math.round(pct * 100)}%</span>}
+                  </a>
+                );
+              })}
+              {tips.length > 0 && (
+                <div className="pe-tips mt-3">
+                  <div className="small fw-semibold mb-2" style={{ color: 'var(--maroon-900)' }}><i className="bi bi-stars me-1 text-gold" />Next best steps</div>
+                  {tips.map((t) => (
+                    <button key={t.key} type="button" className="pe-tip" onClick={() => { document.getElementById(`sec-${t.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (!editSection) handleEditClick(t.key); }}>
+                      Complete “{t.title}” <i className="bi bi-arrow-right" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </nav>
+          </aside>
+
+          <div className="col-lg-9 d-flex flex-column gap-4">
+            {SECTIONS.map((s) => (s.text ? renderTextSection(s) : renderSection(s)))}
+          </div>
+        </div>
+      </div>
+
+      {toast && <div className="mm-toast" role="status"><i className="bi bi-check-circle me-2" />{toast}</div>}
+
       <style jsx global>{`
-        .profileedit-surface {
-          background-color: #f4f7fa;
-          min-height: 100vh;
-          padding-bottom: 60px;
+        .profileedit-surface { background: url('/images/paisley.svg') repeat, var(--ivory); min-height: 100vh; }
+        .pe-hero {
+          position: relative; overflow: hidden; height: 170px;
+          background: url('/images/paisley-light.svg') repeat, radial-gradient(120% 140% at 30% 0%, #7a1530 0%, #3b0a16 60%, #1c030b 100%);
+          border-bottom: 1px solid rgba(232, 207, 142, 0.4);
         }
-        .pe-card {
-           border: 1px solid rgba(0,0,0,0.06);
-           border-radius: 12px;
-           box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-           background: #fff;
-           overflow: hidden;
-           margin-bottom: 24px;
+        .pe-head { margin-top: -110px; position: relative; z-index: 2; }
+        .pe-photo { position: relative; width: 150px; height: 170px; border-radius: 20px; padding: 4px; background: var(--foil); box-shadow: var(--shadow-md); }
+        .pe-photo img { width: 100%; height: 100%; object-fit: cover; border-radius: 16px; background: #f6ead0; }
+        .pe-photo-btn {
+          position: absolute; right: -8px; bottom: -8px; width: 40px; height: 40px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          color: var(--gold-light); background: var(--royal); border: 3px solid #fffdf9; box-shadow: var(--shadow-sm);
         }
-        .pe-card .card-header {
-           background-color: #fff;
-           border-bottom: 1px solid #f1f1f1;
-           padding: 16px 20px;
+        .pe-strength { padding: 16px; border-radius: 18px; background: #fffdf9; border: 1px solid rgba(201, 162, 74, 0.3); }
+        .pe-nav { position: sticky; top: 96px; }
+        .pe-nav-link {
+          display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px;
+          font-size: 0.88rem; color: var(--ink); transition: background 0.2s ease;
         }
-        .pe-card .card-header strong {
-           font-size: 1rem;
-           color: var(--brand-maroon);
-           font-weight: 700;
-           text-transform: uppercase;
-           letter-spacing: 0.5px;
+        .pe-nav-link > i:first-child { color: var(--gold-dark); width: 18px; text-align: center; }
+        .pe-nav-link:hover { background: var(--gold-pale); }
+        .pe-nav-pct { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: #f3ece0; border-radius: 20px; padding: 1px 8px; }
+        .pe-tips { padding: 12px; border-radius: 14px; background: var(--gold-pale); border: 1px dashed var(--gold); }
+        .pe-tip { display: flex; justify-content: space-between; width: 100%; border: 0; background: transparent; padding: 6px 0; font-size: 0.82rem; color: var(--maroon-800); text-align: left; }
+        .pe-tip:hover { color: var(--ruby); }
+        .pe-section {
+          scroll-margin-top: 100px;
+          border-radius: 22px; background: #fff;
+          border: 1px solid rgba(201, 162, 74, 0.28);
+          box-shadow: var(--shadow-sm);
+          transition: box-shadow 0.3s ease, border-color 0.3s ease;
         }
-        .pe-card .card-body {
-           padding: 24px;
-        }
-        .pe-avatar {
-           border: 1px solid rgba(0,0,0,0.1);
-           border-radius: 8px;
-           overflow: hidden;
-        }
-        .form-control:focus, .form-select:focus {
-           box-shadow: 0 0 0 4px rgba(227, 49, 131, 0.1);
-           border-color: var(--brand-primary);
-        }
-        .btn-primary {
-           background-color: var(--brand-primary);
-           border-color: var(--brand-primary);
-        }
-        .btn-primary:hover {
-           background-color: #c21e6b; /* darker pink */
-           border-color: #c21e6b;
-        }
-        .btn-outline-primary {
-            color: var(--brand-primary);
-            border-color: var(--brand-primary);
-        }
-        .btn-outline-primary:hover {
-            background-color: var(--brand-primary);
-            color: #fff;
-        }
-        .text-primary {
-            color: var(--brand-primary) !important;
-        }
+        .pe-section.editing { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201, 162, 74, 0.15), var(--shadow-md); }
+        .pe-section-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid #f1e6d4; background: linear-gradient(180deg, #fffdf9, #fbf4e8); border-radius: 22px 22px 0 0; }
+        .pe-section-head h3 { font-size: 1.45rem; margin: 0; }
+        .pe-section-icon { width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--gold-light); background: var(--royal); flex-shrink: 0; }
+        .pe-section-body { padding: 20px 22px; }
+        .pe-fact { padding: 10px 12px; border-radius: 12px; background: #fffdf9; border: 1px solid #f1e6d4; height: 100%; }
+        .pe-fact small { display: block; font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+        .pe-fact div { font-weight: 600; color: var(--ink); font-size: 0.92rem; word-break: break-word; }
+        .pe-fact div.missing { font-weight: 400; color: #b3a3a7; font-style: italic; }
+        .pe-prose { line-height: 1.8; color: var(--ink); white-space: pre-wrap; }
+        .pe-empty { width: 100%; text-align: left; padding: 16px; border-radius: 14px; border: 1px dashed var(--gold); background: var(--gold-pale); color: var(--maroon-800); font-size: 0.9rem; }
+        .pe-empty:hover { background: #f3e3c4; }
+        @media (max-width: 991.98px) { .pe-nav { position: static; } }
       `}</style>
-    </>
+    </div>
   );
 }

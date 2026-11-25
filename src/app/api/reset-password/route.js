@@ -1,37 +1,61 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
-import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import { query } from "@/lib/db";
 import { validateStrongPassword } from "@/lib/password";
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyResetToken, maskEmail } from "@/lib/password-reset";
+import { revokeAllSessions } from "@/lib/sessions";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+export const dynamic = "force-dynamic";
 
+const LINK_ERRORS = {
+  expired: { error: "This reset link has expired. Please request a new one.", reason: "expired" },
+  invalid: { error: "This reset link is invalid or has already been used. Please request a new one.", reason: "invalid" },
+};
+
+/**
+ * POST { token, check: true }        → { valid, email } (lets the page show "link expired" up front)
+ * POST { token, password, confirm? } → sets the new password
+ */
 export async function POST(request) {
   try {
-    const { token, password } = await request.json();
+    const limited = limitOr429(`reset-ip:${clientIp(request)}`, 15, 15 * 60 * 1000,
+      "Too many attempts. Please wait a few minutes and try again.");
+    if (limited) return limited;
 
-    // 1. Verify token
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = decoded.id;
+    const body = await request.json().catch(() => ({}));
+    const { token, password, confirmPassword, check } = body;
 
-    // 🔒 Strong Password Check
+    const v = await verifyResetToken(token);
+    if (v.error) return NextResponse.json({ valid: false, ...LINK_ERRORS[v.error] }, { status: 400 });
+    const { user } = v;
+
+    if (check) return NextResponse.json({ valid: true, email: maskEmail(user.email) });
+
     const passwordError = validateStrongPassword(password);
-    if (passwordError) {
-      return NextResponse.json({ error: passwordError }, { status: 400 });
+    if (passwordError) return NextResponse.json({ error: passwordError }, { status: 400 });
+    if (confirmPassword !== undefined && confirmPassword !== password) {
+      return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
+    }
+    if (user.password_hash && (await bcrypt.compare(password, user.password_hash))) {
+      return NextResponse.json({ error: "Your new password must be different from your current one." }, { status: 400 });
     }
 
-    // 2. Hash new password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
+    // Changing the hash also invalidates this link (it was signed with the old hash).
+    // Clear any login lockout so the member can sign in straight away.
+    await query(
+      `UPDATE users
+          SET password_hash = $1, password_changed_at = NOW(), updated_at = NOW(),
+              failed_login_attempts = 0, lock_until = NULL
+        WHERE id = $2`,
+      [hashed, user.id]
+    );
 
-    // 3. Update in DB with changed_at timestamp
-    await query("UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2", [
-      hashedPassword,
-      userId,
-    ]);
-
-    return NextResponse.json({ message: "Password reset successful." }, { status: 200 });
+    await revokeAllSessions(user.id); // anyone still logged in with the old password is signed out
+    return NextResponse.json({ message: "Password reset successful." });
   } catch (err) {
-    console.error("Reset password error:", err);
-    return NextResponse.json({ error: "Invalid or expired token" }, { status: 400 });
+    console.error("Reset password error:", err.message);
+    return NextResponse.json({ error: "Server error. Please try again." }, { status: 500 });
   }
 }

@@ -1,0 +1,8 @@
+# Scheduled jobs for the server. Install with:   crontab deploy/crontab.txt
+# Server time is UTC. 21:30 UTC = 3:00 AM IST.
+
+# daily database backup at 3:00 AM IST
+30 21 * * * bash /var/www/matrimoney/deploy/backup.sh >> /var/backups/matrimoney/backup.log 2>&1
+
+# weekly match digest email, Sunday 9:00 AM IST
+30 3 * * 0 bash /var/www/matrimoney/deploy/weekly-digest.sh >> /var/backups/matrimoney/digest.log 2>&1

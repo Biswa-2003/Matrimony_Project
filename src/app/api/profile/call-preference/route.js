@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { getUserIdFromCookie } from "@/lib/auth";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
 export const dynamic = "force-dynamic";
 
 export async function POST(req) {
+  { const limited = limitOr429(`profile-settings:${clientIp(req)}`, 20, 10 * 60 * 1000); if (limited) return limited; }
   try {
     const { callPreference } = await req.json(); // "1", "3", "6", "never"
 

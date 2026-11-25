@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
 const BASE_TABLES = ['matrimony_profiles', 'matrimoney_profiles', 'profiles'];
 const ENV_TABLE = process.env.PROFILE_TABLE?.trim();
 const SAFE_TABLES =
@@ -18,6 +19,7 @@ function safePhotoUrl(path) {
 }
 
 export async function GET(_req, context) {
+  { const limited = limitOr429(`profile-view2:${clientIp(_req)}`, 200, 10 * 60 * 1000, "You are viewing profiles very quickly. Please slow down a little."); if (limited) return limited; }
   // ✅ Next 15: params is async
   const params = await context.params;
   const matri = decodeURIComponent(params?.matri_id || '').trim();

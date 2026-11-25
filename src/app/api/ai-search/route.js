@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyLogin } from "@/lib/auth";
 /* ---------- OpenRouter client ---------- */
 const client = new OpenAI({
     apiKey: process.env.OPENROUTER_API_KEY || "dummy-key",
@@ -139,6 +141,7 @@ User text: ${userText}
 }
 
 export async function POST(req) {
+  { const limited = limitOr429(`ai-search:${clientIp(req)}`, 20, 10 * 60 * 1000); if (limited) return limited; }
     try {
         // ✅ Authenticate user and get their gender
         const token = readTokenFromRequest(req);
@@ -153,7 +156,7 @@ export async function POST(req) {
 
         let decoded;
         try {
-            decoded = jwt.verify(token, secret);
+            decoded = await verifyLogin(token);
         } catch {
             return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
         }

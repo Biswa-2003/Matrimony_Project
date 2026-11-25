@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
+import { ensureSchema, notBlockedSql, isBlockedBetween } from "@/lib/schema";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { photoUrl } from "@/lib/members";
+import { emailInterestReceived, emailInterestAccepted } from "@/lib/emails";
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -13,7 +18,7 @@ async function getUserId() {
     c.get("token")?.value || c.get("auth_token")?.value || c.get("auth")?.value;
   if (!token || !process.env.JWT_SECRET) return null;
   try {
-    const d = jwt.verify(token, process.env.JWT_SECRET);
+    const d = await verifyLogin(token);
     return d?.id ?? d?.userId ?? null;
   } catch {
     return null;
@@ -22,6 +27,7 @@ async function getUserId() {
 
 /* ---------------- POST: send interest ---------------- */
 export async function POST(req) {
+  { const limited = limitOr429(`interest-send:${clientIp(req)}`, 100, 60 * 60 * 1000, "You have sent a lot of interests in a short time. Please try again later."); if (limited) return limited; }
   const meId = await getUserId();
   if (!meId)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -46,12 +52,19 @@ export async function POST(req) {
       { status: 400 }
     );
   }
-  if (+toId === +meId) {
+  if (String(toId) === String(meId)) {
     return NextResponse.json(
       { error: "Cannot send to yourself" },
       { status: 400 }
     );
   }
+
+  // Blocked in either direction -> not allowed
+  try {
+    if (await isBlockedBetween(meId, toId)) {
+      return NextResponse.json({ error: "You can't send an interest to this member." }, { status: 403 });
+    }
+  } catch { /* blocks table unavailable */ }
 
   // Check for ANY existing interaction in either direction
   const existingRes = await query(
@@ -64,6 +77,15 @@ export async function POST(req) {
 
   if (existingRes.rows.length > 0) {
     const existing = existingRes.rows[0];
+    if (existing.status === "cancelled" && String(existing.from_profile) === String(meId)) {
+      // re-sending after withdrawing earlier
+      await query(`UPDATE interests SET status = 'sent', updated_at = NOW() WHERE id = $1`, [existing.id]);
+      emailInterestReceived(meId, toId);
+      return NextResponse.json({ ok: true, resent: true, id: existing.id });
+    }
+    if (existing.status === "declined" && String(existing.from_profile) === String(meId)) {
+      return NextResponse.json({ error: "This member has declined your earlier interest." }, { status: 400 });
+    }
     if (String(existing.from_profile) === String(meId)) {
       return NextResponse.json({ error: "You have already sent an interest to this member." }, { status: 400 });
     } else {
@@ -71,17 +93,19 @@ export async function POST(req) {
     }
   }
 
-  await query(
+  const ins = await query(
     `INSERT INTO interests (from_profile,to_profile,status,created_at,updated_at)
-     VALUES ($1,$2,'sent',NOW(),NOW())`,
+     VALUES ($1,$2,'sent',NOW(),NOW()) RETURNING id`,
     [meId, toId]
   );
+  emailInterestReceived(meId, toId);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, id: ins.rows[0]?.id });
 }
 
-/* ---------------- PATCH: accept interest ---------------- */
+/* ---------------- PATCH: accept / decline / withdraw ---------------- */
 export async function PATCH(req) {
+  { const limited = limitOr429(`interest-reply:${clientIp(req)}`, 100, 10 * 60 * 1000); if (limited) return limited; }
   const meId = await getUserId();
   if (!meId)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -109,7 +133,30 @@ export async function PATCH(req) {
         { status: 404 }
       );
     }
+    emailInterestAccepted(meId, rows[0].from_profile);
     return NextResponse.json({ ok: true, interest: rows[0] });
+  }
+
+  if (action === "decline") {
+    // only the receiver can decline a pending interest
+    const { rows } = await query(
+      `UPDATE interests SET status = 'declined', updated_at = NOW()
+        WHERE id = $1 AND to_profile = $2 AND status = 'sent' RETURNING *`,
+      [id, meId]
+    );
+    if (!rows.length) return NextResponse.json({ error: "Interest not found or already answered" }, { status: 404 });
+    return NextResponse.json({ ok: true, interest: rows[0] });
+  }
+
+  if (action === "withdraw") {
+    // only the sender can withdraw an interest that hasn't been answered yet
+    const { rows } = await query(
+      `UPDATE interests SET status = 'cancelled', updated_at = NOW()
+        WHERE id = $1 AND from_profile = $2 AND status = 'sent' RETURNING id`,
+      [id, meId]
+    );
+    if (!rows.length) return NextResponse.json({ error: "Interest not found or already answered" }, { status: 404 });
+    return NextResponse.json({ ok: true, withdrawn: true });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
@@ -129,6 +176,8 @@ export async function GET(req) {
     const sql = `
       SELECT
         COUNT(*) FILTER (WHERE to_profile = $1 AND status = 'sent') AS received,
+        COUNT(*) FILTER (WHERE from_profile = $1 AND status = 'sent') AS sent,
+        COUNT(*) FILTER (WHERE to_profile = $1 AND status = 'declined') AS declined,
         COUNT(*) FILTER (
           WHERE status = 'accepted' AND (to_profile = $1 OR from_profile = $1)
         ) AS accepted
@@ -145,6 +194,8 @@ export async function GET(req) {
       ok: true,
       received,
       accepted,
+      sent: Number(row.sent || 0),
+      declined: Number(row.declined || 0),
     });
   }
 
@@ -184,6 +235,12 @@ export async function GET(req) {
       where.push(`i.status = $${params.push(status)}`);
     }
   }
+
+  // never show members blocked in either direction
+  try {
+    await ensureSchema();
+    where.push(notBlockedSql(`$${params.indexOf(meId) + 1}`, partnerJoinCol));
+  } catch { /* blocks table unavailable */ }
 
   const whereSql = where.length ? where.join(" AND ") : "TRUE";
 
@@ -250,7 +307,7 @@ export async function GET(req) {
 
   return NextResponse.json({
     ok: true,
-    results: rows,
+    results: rows.map((r) => ({ ...r, photo_url: photoUrl(r.photo_url) })),
     page,
     limit,
     total,

@@ -17,6 +17,7 @@ export async function GET() {
         COALESCE(u.role, 'user') AS role,
         pht.photo_url,
         mp.matri_id,
+        mp.gender,
         COALESCE(
           NULLIF(
             INITCAP(TRIM(CONCAT_WS(' ',
@@ -51,7 +52,7 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 });
     }
 
-    const { id, name, role, email, photo_url, matri_id } = rows[0];
+    const { id, name, role, email, photo_url, matri_id, gender } = rows[0];
     return NextResponse.json({
       ok: true,
       id,
@@ -60,6 +61,7 @@ export async function GET() {
       email: email || '',
       photo_url: photo_url || null,
       matri_id: matri_id || null,
+      gender: gender || null,
     }, { status: 200 });
   } catch (err) {
     console.error('GET /api/me error:', err);

@@ -9,6 +9,7 @@ import { query } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 
+import { verifyLogin } from "@/lib/auth";
 /** DU + 6 digits, zero-padded (e.g., DU000123) */
 function genMatriId(prefix = "DU") {
   const n = crypto.randomInt(0, 1000000); // 0..999999
@@ -99,7 +100,7 @@ export async function GET() {
 
     let payload;
     try {
-      payload = jwt.verify(token, secret);
+      payload = await verifyLogin(token);
     } catch {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

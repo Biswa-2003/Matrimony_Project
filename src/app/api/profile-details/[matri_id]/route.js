@@ -4,6 +4,8 @@ import { query } from "@/lib/db";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 
+import { clientIp, limitOr429 } from "@/lib/rate-limit";
+import { verifyLogin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -17,7 +19,7 @@ async function getUserIdFromCookie() {
   const secret = process.env.JWT_SECRET;
   if (!token || !secret) return null;
   try {
-    const d = jwt.verify(token, secret);
+    const d = await verifyLogin(token);
     return d?.id ?? d?.userId ?? null; // user id in JWT
   } catch {
     return null;
@@ -26,6 +28,7 @@ async function getUserIdFromCookie() {
 
 /* ---------------- GET /api/matrimoney/profile-details/[matri_id] ---------------- */
 export async function GET(req, { params }) {
+  { const limited = limitOr429(`profile-view:${clientIp(req)}`, 200, 10 * 60 * 1000, "You are viewing profiles very quickly. Please slow down a little."); if (limited) return limited; }
   const { matri_id } = params || {};
   const id = String(matri_id || "").trim();
   if (!id) {

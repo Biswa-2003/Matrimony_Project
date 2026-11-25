@@ -196,7 +196,7 @@ export default function AdminUsersPage() {
             <button
               onClick={() => setShowAddModal(true)}
               className="btn btn-danger rounded-pill px-4 fw-semibold shadow-sm"
-              style={{ backgroundColor: '#E33183', borderColor: '#E33183' }}
+              style={{ backgroundColor: '#a3123a', borderColor: '#a3123a' }}
             >
               <i className="bi bi-person-plus-fill me-2"></i> Add New Member
             </button>
@@ -318,7 +318,8 @@ export default function AdminUsersPage() {
                               src={u.photo_url}
                               alt={fullName}
                               className="rounded-circle object-fit-cover shadow-sm"
-                              style={{ width: 42, height: 42 }}
+                              style={{ width: 42, height: 42, border: '2px solid var(--gold-light)' }}
+                              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = String(u?.gender).toLowerCase() === 'male' ? '/images/avatar-male.svg' : '/images/avatar-female.svg'; }}
                             />
                           ) : (
                             <div
@@ -458,7 +459,7 @@ export default function AdminUsersPage() {
         <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content rounded-4 border-0 shadow-lg">
-              <div className="modal-header bg-gradient text-white" style={{ background: 'linear-gradient(135deg, #490B22, #C2185B)' }}>
+              <div className="modal-header bg-gradient text-white" style={{ background: 'linear-gradient(135deg, #3b0a16, #7a1530)' }}>
                 <h5 className="modal-title font-heading fw-bold">
                   <i className="bi bi-person-badge me-2"></i> Member Profile: {selectedUser.first_name} {selectedUser.last_name} ({selectedUser.matri_id})
                 </h5>
@@ -477,7 +478,8 @@ export default function AdminUsersPage() {
                         src={selectedUser.photo_url}
                         alt="Profile"
                         className="rounded-circle shadow-lg mb-3 object-fit-cover"
-                        style={{ width: 140, height: 140, border: '4px solid #E33183' }}
+                        style={{ width: 140, height: 140, border: '4px solid var(--gold)' }}
+                        onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = String(selectedUser?.gender).toLowerCase() === 'male' ? '/images/avatar-male.svg' : '/images/avatar-female.svg'; }}
                       />
                     ) : (
                       <div
@@ -551,7 +553,7 @@ export default function AdminUsersPage() {
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content rounded-4 border-0 shadow-lg">
               <form onSubmit={handleCreateUser}>
-                <div className="modal-header bg-gradient text-white" style={{ background: 'linear-gradient(135deg, #490B22, #C2185B)' }}>
+                <div className="modal-header bg-gradient text-white" style={{ background: 'linear-gradient(135deg, #3b0a16, #7a1530)' }}>
                   <h5 className="modal-title font-heading fw-bold">
                     <i className="bi bi-person-plus-fill me-2"></i> Register New Member
                   </h5>
@@ -649,7 +651,7 @@ export default function AdminUsersPage() {
                     type="submit"
                     disabled={actionLoading}
                     className="btn btn-danger px-4"
-                    style={{ backgroundColor: '#E33183', borderColor: '#E33183' }}
+                    style={{ backgroundColor: '#a3123a', borderColor: '#a3123a' }}
                   >
                     {actionLoading ? 'Creating...' : 'Create Member'}
                   </button>
