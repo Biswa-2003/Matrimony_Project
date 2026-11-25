@@ -1,0 +1,8 @@
+# never upload secrets, member data or local junk to Vercel
+.env*
+backups/
+public/uploads/*
+!public/uploads/default.jpg
+coverage/
+*.dump
+*.log
