@@ -66,6 +66,7 @@ export const DICT = {
     "login.adminId": "Admin Email",
     "login.adminSubmit": "Sign In as Admin",
     "login.notAdmin": "This account does not have admin access. Please use the Member tab.",
+    "login.isAdmin": "This is an admin account. Please use the Admin tab.",
     "login.adminNote": "Admin accounts are created by the site owner. Members cannot sign in here.",
 
     "footer.company": "Company",
@@ -136,6 +137,7 @@ export const DICT = {
     "login.adminId": "एडमिन ईमेल",
     "login.adminSubmit": "एडमिन के रूप में साइन इन",
     "login.notAdmin": "इस खाते के पास एडमिन अनुमति नहीं है। कृपया सदस्य टैब का उपयोग करें।",
+    "login.isAdmin": "यह एडमिन खाता है। कृपया एडमिन टैब का उपयोग करें।",
     "login.adminNote": "एडमिन खाते साइट के मालिक बनाते हैं। सदस्य यहाँ साइन इन नहीं कर सकते।",
 
     "footer.company": "कंपनी",
@@ -206,6 +208,7 @@ export const DICT = {
     "login.adminId": "ଆଡମିନ୍ ଇମେଲ୍",
     "login.adminSubmit": "ଆଡମିନ୍ ଭାବେ ସାଇନ୍ ଇନ୍",
     "login.notAdmin": "ଏହି ଖାତାର ଆଡମିନ୍ ଅନୁମତି ନାହିଁ। ଦୟାକରି ସଦସ୍ୟ ଟ୍ୟାବ୍ ବ୍ୟବହାର କରନ୍ତୁ।",
+    "login.isAdmin": "ଏହା ଏକ ଆଡମିନ୍ ଖାତା। ଦୟାକରି ଆଡମିନ୍ ଟ୍ୟାବ୍ ବ୍ୟବହାର କରନ୍ତୁ।",
     "login.adminNote": "ଆଡମିନ୍ ଖାତା ସାଇଟ୍ ମାଲିକ ତିଆରି କରନ୍ତି। ସଦସ୍ୟମାନେ ଏଠାରେ ସାଇନ୍ ଇନ୍ କରିପାରିବେ ନାହିଁ।",
 
     "footer.company": "କମ୍ପାନୀ",

@@ -1,6 +1,17 @@
 
 import { NextResponse } from 'next/server'
 
+// Reads the role from the login token WITHOUT verifying it. Only used to pick where to send someone;
+// every admin page and API still checks the token and the role on the server.
+function roleFromToken(token) {
+    try {
+        const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+        return JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), '=')))?.role || null
+    } catch {
+        return null
+    }
+}
+
 export function middleware(request) {
     const token = request.cookies.get('token')?.value
     const { pathname } = request.nextUrl
@@ -77,8 +88,14 @@ export function middleware(request) {
     // -------------------------------------------------------------------------
 
     // A. Redirect logged-in users away from auth pages (e.g. login -> dashboard)
+    const role = token ? roleFromToken(token) : null
     if (isAuthPage && token) {
-        return NextResponse.redirect(dashboardHomeUrl)
+        return NextResponse.redirect(role === 'admin' ? new URL('/admin', request.url) : dashboardHomeUrl)
+    }
+
+    // Admins use the admin console, not the member dashboard
+    if (token && role === 'admin' && (pathname === '/dashboard' || pathname.startsWith('/dashboard/'))) {
+        return NextResponse.redirect(new URL('/admin', request.url))
     }
 
     // B. Protection Logic

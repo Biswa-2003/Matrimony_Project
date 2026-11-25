@@ -65,13 +65,14 @@ export default function LoginPage() {
         credentials: "include",
       });
       const data = await res.json();
-      if (res.ok && isAdmin && data.user?.role !== "admin") {
-        // a member account on the admin tab: don't leave them half signed in
+      const accountIsAdmin = data.user?.role === "admin";
+      if (res.ok && isAdmin !== accountIsAdmin) {
+        // wrong tab for this account (member on Admin, or admin on Member): don't leave it signed in
         await fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {});
-        setStatus({ type: "error", text: t("login.notAdmin") });
+        setStatus({ type: "error", text: t(isAdmin ? "login.notAdmin" : "login.isAdmin") });
       } else if (res.ok) {
         setStatus({ type: "success", text: `Welcome back, ${data.user?.first_name || data.user?.name || "Member"}…` });
-        window.location.href = data.user?.role === "admin" ? "/admin" : "/dashboard/myhome";
+        window.location.href = accountIsAdmin ? "/admin" : "/dashboard/myhome";
       } else {
         setStatus({ type: "error", text: data.message || data.error || "Login failed. Please check your details." });
       }
