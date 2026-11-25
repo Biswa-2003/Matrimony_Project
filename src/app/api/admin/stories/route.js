@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isAdmin } from "@/lib/auth";
-import { storeImage } from "@/lib/media";
+import { storeImage, deleteMedia } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
 const denied = () => NextResponse.json({ error: "Access denied. Admin privileges required." }, { status: 403 });
@@ -99,7 +99,7 @@ export async function DELETE(req) {
       const { rows } = await query(`DELETE FROM success_stories WHERE id = $1 RETURNING image_url`, [id]);
       // remove the story photo too when it lives in our media store
       const m = String(rows[0]?.image_url || "").match(/^\/api\/media\/([0-9a-f-]{36})$/i);
-      if (m) await query(`DELETE FROM media_files WHERE id = $1`, [m[1]]).catch(() => {});
+      if (m) await deleteMedia(m[1]);
     }
     return NextResponse.json({ ok: true });
   } catch (e) {

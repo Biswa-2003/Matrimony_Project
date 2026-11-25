@@ -10,6 +10,7 @@ import { ensureSchema } from "@/lib/schema";
 import { limitOr429 } from "@/lib/rate-limit";
 import { photoUrl } from "@/lib/members";
 import { MAX_PHOTOS, profileOfUser } from "@/lib/photos";
+import { deleteMedia } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ export async function DELETE(req) {
     [id, prof.id]
   );
   if (!rows.length) return NextResponse.json({ error: "Photo not found." }, { status: 404 });
-  if (rows[0].media_id) await query(`DELETE FROM media_files WHERE id = $1`, [rows[0].media_id]).catch(() => {});
+  await deleteMedia(rows[0].media_id);
   if (rows[0].is_primary) {
     // promote the newest remaining photo
     await query(

@@ -1,9 +1,9 @@
 // src/lib/photos.js
-// Member photos: stored in media_files (survives serverless deploys), served through
+// Member photos: stored via media_files (Vercel Blob or Postgres - see lib/media.js), served through
 // /api/member-photo/[photoId] which enforces "photo lock" (visible only to connections).
 import { query } from "@/lib/db";
 import { ensureSchema } from "@/lib/schema";
-import { MAX_IMAGE_BYTES, sniffImageType } from "@/lib/media";
+import { MAX_IMAGE_BYTES, sniffImageType, insertMedia } from "@/lib/media";
 
 export const MAX_PHOTOS = 8;
 export const memberPhotoUrl = (photoId) => `/api/member-photo/${photoId}`;
@@ -32,15 +32,12 @@ export async function addMemberPhoto(userId, file) {
   const { rows: cnt } = await query(`SELECT COUNT(*)::int AS n FROM photos WHERE profile_id = $1`, [prof.id]);
   if ((cnt[0]?.n || 0) >= MAX_PHOTOS) throw new Error(`You can have up to ${MAX_PHOTOS} photos. Delete one to add another.`);
 
-  const media = await query(
-    `INSERT INTO media_files (content_type, data, size_bytes, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [type, buf, buf.length, `member-photo-${userId}`]
-  );
+  const mediaId = await insertMedia(buf, type, `member-photo-${userId}`, "members");
   const isFirst = (cnt[0]?.n || 0) === 0;
   const { rows } = await query(
     `INSERT INTO photos (id, profile_id, path, is_primary, created_at, media_id)
      VALUES (gen_random_uuid(), $1, '', $2, NOW(), $3) RETURNING id`,
-    [prof.id, isFirst, media.rows[0].id]
+    [prof.id, isFirst, mediaId]
   );
   const photoId = rows[0].id;
   await query(`UPDATE photos SET path = $1 WHERE id = $2`, [memberPhotoUrl(photoId), photoId]);

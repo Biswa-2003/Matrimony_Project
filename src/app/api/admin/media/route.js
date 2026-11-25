@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { isAdmin } from "@/lib/auth";
-import { MEDIA_SLOTS, storeImage, getSetting, setSetting } from "@/lib/media";
+import { MEDIA_SLOTS, storeImage, getSetting, setSetting, deleteMedia } from "@/lib/media";
 import { ensureSchema } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export async function POST(req) {
     const prev = await getSetting(`media:${slot}`);
     await setSetting(`media:${slot}`, { url: stored.url, fileId: stored.id, alt });
     // the replaced image is no longer referenced anywhere
-    if (prev?.fileId) await query(`DELETE FROM media_files WHERE id = $1`, [prev.fileId]).catch(() => {});
+    await deleteMedia(prev?.fileId);
     return NextResponse.json({ ok: true, url: stored.url });
   } catch (e) {
     const userError = /image|choose|large|allowed/i.test(e.message);
@@ -58,7 +58,7 @@ export async function DELETE(req) {
     if (!MEDIA_SLOTS[slot]) return NextResponse.json({ error: "Unknown image slot." }, { status: 400 });
     const prev = await getSetting(`media:${slot}`);
     await query(`DELETE FROM site_settings WHERE key = $1`, [`media:${slot}`]);
-    if (prev?.fileId) await query(`DELETE FROM media_files WHERE id = $1`, [prev.fileId]).catch(() => {});
+    await deleteMedia(prev?.fileId);
     return NextResponse.json({ ok: true, url: MEDIA_SLOTS[slot].fallback });
   } catch (e) {
     console.error("[admin/media] DELETE", e);

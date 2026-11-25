@@ -5,6 +5,7 @@ functions). Neon is the PostgreSQL database. No separate backend server is neede
 
 ```
 Visitor ──HTTPS──► Vercel (pages + /api functions) ──SSL──► Neon PostgreSQL
+                     │                                └────► Vercel Blob (private: photos & site images)
                      Vercel Cron: Sunday weekly digest
 ```
 
@@ -15,7 +16,8 @@ Visitor ──HTTPS──► Vercel (pages + /api functions) ──SSL──► 
 | Vercel Hobby | **Personal, non-commercial use only** | Fine for testing and a portfolio. Once you charge members, Vercel's terms require Pro ($20/month). |
 | Vercel Hobby | 4.5 MB request size | Photo uploads are capped at 4 MB already — OK. |
 | Vercel | No permanent disk | New photos are saved in the database already. Old photos in `public/uploads` must be moved (step 2). |
-| Neon Free | ~0.5 GB storage | Photos live in the database too: roughly a few thousand photos fit. |
+| Neon Free | ~0.5 GB storage | With Vercel Blob (step 3b) photos don't use database space. Without it they do. |
+| Vercel Blob (Hobby) | ~1 GB storage, ~10 GB transfer / month | Thousands of photos (most are 100–500 KB). Check vercel.com/pricing for current limits. |
 | Neon Free | Sleeps when idle | First request after a quiet spell takes ~1 second longer. |
 | In-memory rate limits | Kept per function instance | Still works, just less strict than on one server. |
 
@@ -85,6 +87,20 @@ psql $env:DATABASE_URL -c "UPDATE users SET role='user' WHERE email ILIKE 'debug
    - Neon in `us-east-1` (current) → Vercel **Washington, D.C. (iad1)**
    - Neon in Singapore / Mumbai → Vercel **Singapore (sin1)** / **Mumbai (bom1)** — faster for Indian visitors
 5. **Deploy**. When it finishes, open the `.vercel.app` link.
+
+## Step 3b — Vercel Blob for photos (3 min)
+
+1. Vercel → your project → **Storage → Create → Blob**.
+2. Name it (e.g. `matrimoney-photos`), choose **Private** access, pick the region nearest your app, and
+   **connect it to the project** (all environments). Vercel adds `BLOB_READ_WRITE_TOKEN` by itself.
+3. **Deployments → ⋯ → Redeploy**.
+
+From then on every new member photo and admin image is stored in Blob. Images keep their addresses
+(`/api/member-photo/…`, `/api/media/…`), so the photo lock still applies — private blobs are only
+read by the server, never linked directly. Images uploaded before Blob was switched on stay in the
+database and keep working.
+
+If you ever create a **Public** store instead, also add `BLOB_ACCESS=public`.
 
 If you didn't know the final URL before deploying: set `NEXT_PUBLIC_BASE_URL`, then
 **Deployments → ⋯ → Redeploy** (settings starting with `NEXT_PUBLIC_` are baked in at build time).

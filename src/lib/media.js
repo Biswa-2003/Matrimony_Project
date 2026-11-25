@@ -1,9 +1,12 @@
 import { query } from "@/lib/db";
 import { ensureSchema } from "@/lib/schema";
+import { blobEnabled, putBlob, getBlobStream, deleteBlob } from "@/lib/blob-store";
 
 /**
  * Database-backed media + site settings.
- * Images live in Postgres (bytea) so uploads survive serverless deploys (Vercel has no persistent disk).
+ * Image bytes go to Vercel Blob when BLOB_READ_WRITE_TOKEN is set, otherwise into Postgres (bytea).
+ * Either way they survive serverless deploys (Vercel has no persistent disk), and every image keeps
+ * its stable address /api/media/<id> or /api/member-photo/<id>.
  */
 
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -39,12 +42,45 @@ export async function storeImage(file) {
   const buf = Buffer.from(await file.arrayBuffer());
   const type = sniffImageType(buf);
   if (!type) throw new Error("Only JPG, PNG, WebP or GIF images are allowed.");
+  const id = await insertMedia(buf, type, String(file.name || "").slice(0, 200), "site");
+  return { id, url: `/api/media/${id}` };
+}
+
+/** Save already-validated image bytes; returns the media_files id. */
+export async function insertMedia(buf, contentType, name, folder) {
   await ensureSchema();
-  const { rows } = await query(
-    `INSERT INTO media_files (content_type, data, size_bytes, original_name) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [type, buf, buf.length, String(file.name || "").slice(0, 200)]
-  );
-  return { id: rows[0].id, url: `/api/media/${rows[0].id}` };
+  const blobUrl = blobEnabled() ? await putBlob(buf, contentType, folder) : null;
+  try {
+    const { rows } = await query(
+      `INSERT INTO media_files (content_type, data, size_bytes, original_name, blob_url) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [contentType, blobUrl ? null : buf, buf.length, name, blobUrl]
+    );
+    return rows[0].id;
+  } catch (e) {
+    await deleteBlob(blobUrl); // don't leave an orphan file behind
+    throw e;
+  }
+}
+
+/** { contentType, body } for a media id (body is a Buffer or a stream), or null. */
+export async function readMedia(id) {
+  await ensureSchema();
+  const { rows } = await query(`SELECT content_type, data, blob_url FROM media_files WHERE id = $1`, [id]);
+  const m = rows[0];
+  if (!m) return null;
+  const body = m.blob_url ? await getBlobStream(m.blob_url) : m.data;
+  return body ? { contentType: m.content_type, body } : null;
+}
+
+/** Delete a media row and its Blob file (if any). Never throws. */
+export async function deleteMedia(id) {
+  if (!id) return;
+  try {
+    const { rows } = await query(`DELETE FROM media_files WHERE id = $1 RETURNING blob_url`, [id]);
+    await deleteBlob(rows[0]?.blob_url);
+  } catch (e) {
+    console.error("[media] delete failed:", e.message);
+  }
 }
 
 export async function getSetting(key, fallback = null) {
